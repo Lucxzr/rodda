@@ -214,19 +214,45 @@ async function dinheiro(){
  shell('<p class="mu">Carregando…</p>');
  const[dp,wd,all,ex,{data:p}]=await Promise.all([rows('deposits',{by:'deposited_at'}),rows('withdrawals',{by:'withdrawn_at'}),loadEarnings(),rows('expenses',{by:'spent_at'}),sb.from('profiles').select('*').single()]);
  const gm=sum(all.filter(e=>inMonth(e.earned_at))).t,wm=sumC(ex.filter(e=>e.kind==='work'&&inMonth(e.spent_at)));
- const base=p?.split_base==='net'?Math.max(gm-wm,0):gm,rec={bills:p?.split_bills_pct??50,personal:p?.split_personal_pct??30,reserve:p?.split_reserve_pct??20};
+ const base=p?.split_base==='net'?Math.max(gm-wm,0):gm,pc={b:+(p?.split_bills_pct??50),p:+(p?.split_personal_pct??30),r:+(p?.split_reserve_pct??20)};
  const bal=k=>sumC(dp.filter(x=>x.bucket===k))-sumC(wd.filter(x=>x.bucket===k)),dm=k=>sumC(dp.filter(x=>x.bucket===k&&inMonth(x.deposited_at)));
+ const m=c=>(c/100).toFixed(2).replace('.',','),rec=pc2=>Math.round(base*pc2/100);
+ let useCdb=true;try{useCdb=localStorage.getItem('rodda_cdb')!=='0'}catch(e){}
+ // histórico agrupado: um depósito automático vira um único cartão com a divisão
+ const G={};[...dp.map(x=>({...x,t:'Depósito',tb:'deposits',d:x.deposited_at})),...wd.map(x=>({...x,t:'Retirada',tb:'withdrawals',d:x.withdrawn_at}))].forEach(x=>{
+  const k=x.tb+'|'+String(x.d).slice(0,19);const g=G[k]=G[k]||{t:x.t,tb:x.tb,d:x.d,ids:[],parts:{},total:0};g.ids.push(x.id);g.parts[x.bucket]=(g.parts[x.bucket]||0)+x.amount_cents;g.total+=x.amount_cents});
+ const hist=Object.values(G).sort((a,b)=>new Date(b.d)-new Date(a.d)).slice(0,30);
  shell(`<h1>Dinheiro</h1><h2>Saldo guardado (o que você registrou)</h2><div class="grid">${Object.keys(BK).map(k=>`<div class="card"><div class="mu">${BK[k]}</div><b>${brl(bal(k))}</b></div>`).join('')}</div>
- <h2>Neste mês: recomendado × depositado</h2><div class="card">${Object.keys(rec).map(k=>{const r=Math.round(base*rec[k]/100);return`<div class="row"><span>${BK[k]}</span><span class="mu">${brl(r)} rec. · <b style="color:var(--text)">${brl(dm(k))}</b> dep.</span></div>`}).join('')}</div>
- <div class="card"><select id="tp"><option value="deposits">Depósito (guardei)</option><option value="withdrawals">Retirada (tirei)</option></select>
- <select id="bk">${Object.keys(BK).map(k=>`<option value="${k}">${BK[k]}</option>`).join('')}</select><input id="vl" inputmode="decimal" placeholder="Valor (R$)">
+ <h2>Neste mês: recomendado × depositado</h2><div class="card">
+ <div class="row"><span>Contas / CDB</span><span class="mu">${brl(rec(pc.b))} rec. · <b style="color:var(--text)">${brl(dm('bills')+dm('cdb'))}</b> dep.</span></div>
+ <div class="row"><span>Pessoal</span><span class="mu">${brl(rec(pc.p))} rec. · <b style="color:var(--text)">${brl(dm('personal'))}</b> dep.</span></div>
+ <div class="row"><span>Reserva</span><span class="mu">${brl(rec(pc.r))} rec. · <b style="color:var(--text)">${brl(dm('reserve'))}</b> dep.</span></div></div>
+ <h2>Registrar</h2><div class="card"><select id="tp"><option value="deposits">Depósito (guardei)</option><option value="withdrawals">Retirada (tirei)</option></select>
+ <select id="md"><option value="auto">Automático (${pc.b}/${pc.p}/${pc.r})</option><option value="man">Manual (eu escolho)</option></select>
+ <select id="bk">${Object.keys(BK).map(k=>`<option value="${k}">${BK[k]}</option>`).join('')}</select>
+ <input id="vl" inputmode="decimal" placeholder="Valor total (R$)">
+ <label class="mu" id="cw" style="display:block;margin-bottom:10px"><input type="checkbox" id="cdb" ${useCdb?'checked':''} style="margin-right:8px">Guardar a parte das Contas no CDB</label>
+ <div id="pv">${Object.keys(BK).map(k=>`<div class="row" style="margin-bottom:8px"><span class="mu" style="flex:1">${BK[k]}</span><input data-b="${k}" inputmode="decimal" placeholder="0,00" style="width:130px;margin:0;text-align:right"></div>`).join('')}<div class="row" style="margin-bottom:10px"><span class="mu">Total</span><b id="tt">R$ 0,00</b></div></div>
  <div class="msg" id="msg"></div><button id="add">Registrar</button></div>
- ${[...dp.map(x=>({...x,t:'Depósito',d:x.deposited_at,tb:'deposits'})),...wd.map(x=>({...x,t:'Retirada',d:x.withdrawn_at,tb:'withdrawals'}))].sort((a,b)=>new Date(b.d)-new Date(a.d)).slice(0,30).map(x=>`<div class="card row"><div><b style="color:${x.t==='Retirada'?'var(--danger)':'var(--success)'}">${x.t==='Retirada'?'−':'+'}${brl(x.amount_cents)}</b><div class="mu">${x.t} · ${BK[x.bucket]} · ${new Date(x.d).toLocaleDateString('pt-BR')}</div></div><button class="sm" data-id="${x.id}" data-tb="${x.tb}">Excluir</button></div>`).join('')}`);
- $('#add').onclick=async()=>{const v=toCents($('#vl').value);if(!v)return $('#msg').textContent='Informe o valor.';
-  const t=$('#tp').value;if(t==='withdrawals'&&v>bal($('#bk').value))return $('#msg').textContent='Retirada maior que o saldo registrado.';
-  const{error}=await sb.from(t).insert({bucket:$('#bk').value,amount_cents:v});if(error)return $('#msg').textContent=error.message;toast('Salvo ✓');dinheiro()};
- document.querySelectorAll('button.sm').forEach(b=>b.onclick=async()=>{if(confirm('Excluir registro?')){await sb.from(b.dataset.tb).delete().eq('id',b.dataset.id);dinheiro()}})}
-
+ ${hist.length?'':'<div class="card"><p class="mu">Nenhum depósito ainda. Digite o valor que você guardou e o app divide para você.</p></div>'}
+ ${hist.map(g=>`<div class="card"><div class="row"><div><b style="color:${g.t==='Retirada'?'var(--danger)':'var(--success)'}">${g.t==='Retirada'?'−':'+'}${brl(g.total)}</b><div class="mu">${g.t} · ${new Date(g.d).toLocaleDateString('pt-BR')}</div></div><button class="sm" data-ids="${g.ids.join(',')}" data-tb="${g.tb}">Excluir</button></div>
+ <div class="mu" style="margin-top:8px">${Object.entries(g.parts).map(([k,v])=>BK[k]+' '+brl(v)).join(' · ')}</div></div>`).join('')}`);
+ const inputs=()=>[...document.querySelectorAll('#pv input')];
+ const upd=()=>{const dep=$('#tp').value==='deposits',auto=$('#md').value==='auto';
+  $('#md').style.display=dep?'':'none';$('#bk').style.display=dep?'none':'';$('#pv').style.display=dep?'':'none';$('#cw').style.display=dep&&auto?'block':'none';$('#vl').style.display=dep&&!auto?'none':'';
+  inputs().forEach(i=>i.readOnly=auto);
+  if(dep&&auto){const v=toCents($('#vl').value),pe=Math.floor(v*pc.p/100),re=Math.floor(v*pc.r/100),bi=v-pe-re,c=$('#cdb').checked,o={bills:c?0:bi,personal:pe,reserve:re,cdb:c?bi:0};inputs().forEach(i=>i.value=o[i.dataset.b]?m(o[i.dataset.b]):'')}
+  $('#tt').textContent=brl(inputs().reduce((s,i)=>s+toCents(i.value),0))};
+ ['tp','md'].forEach(i=>$('#'+i).onchange=upd);$('#cdb').onchange=()=>{try{localStorage.setItem('rodda_cdb',$('#cdb').checked?'1':'0')}catch(e){}upd()};
+ $('#vl').oninput=upd;inputs().forEach(i=>i.oninput=upd);upd();
+ $('#add').onclick=async()=>{const t=$('#tp').value;
+  if(t==='deposits'){const auto=$('#md').value==='auto',r=inputs().map(i=>({bucket:i.dataset.b,amount_cents:toCents(i.value),notes:auto?'auto':'manual'})).filter(x=>x.amount_cents>0);
+   if(!r.length)return $('#msg').textContent='Informe o valor.';
+   const{error}=await sb.from('deposits').insert(r);if(error)return $('#msg').textContent=error.message;toast('Depósito salvo ✓');return dinheiro()}
+  const v=toCents($('#vl').value);if(!v)return $('#msg').textContent='Informe o valor.';
+  if(v>bal($('#bk').value))return $('#msg').textContent='Retirada maior que o saldo registrado.';
+  const{error}=await sb.from('withdrawals').insert({bucket:$('#bk').value,amount_cents:v});if(error)return $('#msg').textContent=error.message;toast('Retirada salva ✓');dinheiro()};
+ document.querySelectorAll('button.sm[data-ids]').forEach(b=>b.onclick=async()=>{if(confirm('Excluir este registro?')){await sb.from(b.dataset.tb).delete().in('id',b.dataset.ids.split(','));dinheiro()}})}
 async function metas(){
  shell('<p class="mu">Carregando…</p>');const l=await rows('goals');
  shell(`<h1>Metas</h1><div class="card"><input id="tt" placeholder="Meta (Juntar R$ 500, Parcela da moto…)"><div class="grid"><input id="vl" inputmode="decimal" placeholder="Valor (R$)"><input id="dl" type="date"></div>
