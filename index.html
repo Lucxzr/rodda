@@ -28,12 +28,12 @@ const $=s=>document.querySelector(s),app=$('#app');
 const brl=c=>(c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const toCents=v=>Math.round(parseFloat(String(v).replace(/\./g,'').replace(',','.')||'0')*100);
 const esc=s=>String(s??'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
-let tab='inicio',user=null,mode='login';
+let tab='inicio',user=null,mode='login',ob=null,editId=null;
 
 async function boot(){const{data}=await sb.auth.getSession();user=data.session?.user||null;render()}
 sb.auth.onAuthStateChange((_e,s)=>{user=s?.user||null});
 
-function authView(msg=''){
+function authView(msg=''){ob=null;
  app.innerHTML=`<h1>RODDA</h1><p class="mu">Gestão inteligente para quem vive do corre.</p>
  <div class="card">${mode==='signup'?'<input id="nm" placeholder="Seu nome" autocomplete="name">':''}
  <input id="em" type="email" placeholder="E-mail" autocomplete="email">
@@ -41,8 +41,8 @@ function authView(msg=''){
  <div class="msg" id="msg">${msg}</div>
  <button id="go">${mode==='login'?'Entrar':'Criar conta'}</button><br><br>
  <button class="ghost" id="sw">${mode==='login'?'Criar conta nova':'Já tenho conta'}</button>
- ${mode==='login'?'<p class="mu" style="text-align:center" id="fg">Esqueci a senha</p>':''}</div>`;
- $('#sw').onclick=()=>{mode=mode==='login'?'signup':'login';authView()};
+ ${mode==='login'?'<p class="mu" style="text-align:center" id="fg">Esqueci a senha</p>':''}</div><p class="mu" style="text-align:center">Ao usar o RODDA você concorda com os <a id="tm" style="color:var(--ac)">Termos</a> e a <a id="pv" style="color:var(--ac)">Política de Privacidade</a>.</p>`;
+ $('#sw').onclick=()=>{mode=mode==='login'?'signup':'login';authView()};$('#tm').onclick=()=>doc('termos');$('#pv').onclick=()=>doc('privacidade');
  const fg=$('#fg');if(fg)fg.onclick=async()=>{const e=$('#em').value;if(!e)return $('#msg').textContent='Digite seu e-mail primeiro.';
   const{error}=await sb.auth.resetPasswordForEmail(e,{redirectTo:location.origin});$('#msg').textContent=error?error.message:'Enviamos um link para seu e-mail.'};
  $('#go').onclick=async()=>{const email=$('#em').value.trim(),password=$('#pw').value;$('#msg').textContent='';
@@ -52,7 +52,7 @@ function authView(msg=''){
   if(!user)return $('#msg').textContent='Conta criada. Confirme seu e-mail e entre.';render()};
 }
 
-function shell(html){app.innerHTML=html+'<nav>'+TABS.map(([k,l])=>`<a data-t="${k}" class="${tab===k||(k==='mais'&&['metas','veiculos','veiculo','desempenho','perfil'].includes(tab))?'on':''}">${l}</a>`).join('')+'</nav>';
+function shell(html){app.innerHTML=html+'<nav>'+TABS.map(([k,l])=>`<a data-t="${k}" class="${tab===k||(k==='mais'&&['metas','veiculos','veiculo','desempenho','relatorios','perfil'].includes(tab))?'on':''}">${l}</a>`).join('')+'</nav>';
  document.querySelectorAll('nav a').forEach(a=>a.onclick=()=>{tab=a.dataset.t;render()})}
 
 const total=e=>e.amount_cents+e.tips_cents+(e.bonus_confirmed?e.bonus_cents:0);
@@ -65,9 +65,12 @@ async function loadEarnings(){const{data,error}=await sb.from('earnings').select
 
 async function render(){
  if(!user)return authView();
- return({inicio,ganhos,despesas,contas,dinheiro,mais,metas,veiculos,veiculo,desempenho,perfil}[tab]||inicio)()}
+ if(ob===null){const{data}=await sb.from('profiles').select('onboarding_done').maybeSingle();ob=data?!!data.onboarding_done:true}
+ if(!ob)return onboarding();
+ return({inicio,ganhos,despesas,contas,dinheiro,mais,metas,veiculos,veiculo,desempenho,relatorios,perfil}[tab]||inicio)()}
 
 async function ganhos(){
+ editId=null;
  shell('<p class="mu">Carregando…</p>');
  const[all,{data:pl}]=await Promise.all([loadEarnings(),sb.from('platforms').select('name')]);
  const days={};all.forEach(e=>{const k=new Date(e.earned_at).toLocaleDateString('pt-BR');(days[k]=days[k]||[]).push(e)});
@@ -78,14 +81,16 @@ async function ganhos(){
  <div class="grid"><input id="bon" inputmode="decimal" placeholder="Bônus (R$)"><input id="tip" inputmode="decimal" placeholder="Gorjeta (R$)"></div>
  <label class="mu"><input type="checkbox" id="bc" style="width:auto;margin-right:8px">Bônus já confirmado</label><br><br>
  <div class="msg" id="msg"></div><button id="add">Salvar ganho</button></div>
- ${Object.entries(days).map(([k,l])=>`<h2>${k} · ${brl(sum(l).t)}</h2>`+l.map(e=>`<div class="card row"><div><b>${brl(total(e))}</b><div class="mu">${esc(e.platforms?.name||'Sem app')} · ${e.deliveries} entregas</div></div><button class="sm" data-id="${e.id}">Excluir</button></div>`).join('')).join('')}`);
+ ${Object.entries(days).map(([k,l])=>`<h2>${k} · ${brl(sum(l).t)}</h2>`+l.map(e=>`<div class="card row"><div><b>${brl(total(e))}</b><div class="mu">${esc(e.platforms?.name||'Sem app')} · ${e.deliveries} entregas</div></div><div><button class="sm" data-ed="${e.id}" style="color:var(--ac)">Editar</button> <button class="sm" data-id="${e.id}">Excluir</button></div></div>`).join('')).join('')}`);
  $('#add').onclick=async()=>{const v=toCents($('#val').value);if(!v)return $('#msg').textContent='Informe o valor recebido.';
   let pid=null;const nm=$('#app_').value.trim();
   if(nm){let{data:ex}=await sb.from('platforms').select('id').ilike('name',nm).maybeSingle();
    if(!ex){const r=await sb.from('platforms').insert({name:nm}).select('id').single();if(r.error)return $('#msg').textContent=r.error.message.includes('FREE')?r.error.message:r.error.message;ex=r.data}pid=ex.id}
-  const{error}=await sb.from('earnings').insert({platform_id:pid,amount_cents:v,bonus_cents:toCents($('#bon').value),tips_cents:toCents($('#tip').value),deliveries:parseInt($('#ent').value)||0,minutes_worked:parseInt($('#min').value)||null,bonus_confirmed:$('#bc').checked});
+  const row={platform_id:pid,amount_cents:v,bonus_cents:toCents($('#bon').value),tips_cents:toCents($('#tip').value),deliveries:parseInt($('#ent').value)||0,minutes_worked:parseInt($('#min').value)||null,bonus_confirmed:$('#bc').checked};const{error}=await(editId?sb.from('earnings').update(row).eq('id',editId):sb.from('earnings').insert(row));
   if(error)return $('#msg').textContent=error.message;ganhos()};
- document.querySelectorAll('button.sm').forEach(b=>b.onclick=async()=>{if(confirm('Excluir este ganho?')){await sb.from('earnings').delete().eq('id',b.dataset.id);ganhos()}})}
+ document.querySelectorAll('button.sm[data-id]').forEach(b=>b.onclick=async()=>{if(confirm('Excluir este ganho?')){await sb.from('earnings').delete().eq('id',b.dataset.id);ganhos()}});
+ const m=c=>c?(c/100).toFixed(2).replace('.',','):'';
+ document.querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>{const e=all.find(x=>x.id===b.dataset.ed);editId=e.id;$('#app_').value=e.platforms?.name||'';$('#val').value=m(e.amount_cents);$('#ent').value=e.deliveries||'';$('#min').value=e.minutes_worked||'';$('#bon').value=m(e.bonus_cents);$('#tip').value=m(e.tips_cents);$('#bc').checked=e.bonus_confirmed;$('#add').textContent='Atualizar ganho';scrollTo(0,0)})}
 
 const TABS=[['inicio','Início'],['ganhos','Ganhos'],['despesas','Despesas'],['contas','Contas'],['dinheiro','Dinheiro'],['mais','Mais']];
 const mStart=()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(),1)};
@@ -109,6 +114,7 @@ async function inicio(){
  <div class="grid"><div class="card"><div class="mu">Últimos 7 dias</div><b>${brl(week.t)}</b></div><div class="card"><div class="mu">Este mês</div><b>${brl(month.t)}</b></div>
  <div class="card"><div class="mu">Gasto p/ trabalhar</div><b>${brl(work)}</b></div><div class="card"><div class="mu">Lucro estimado</div><b style="color:${profit<0?'var(--er)':'var(--ok)'}">${brl(profit)}</b></div>
  <div class="card"><div class="mu">Entregas no mês</div><b>${month.n}</b></div><div class="card"><div class="mu">Ganho por hora</div><b>${month.hr?brl(month.hr):'—'}</b></div></div>
+ ${prof?.monthly_goal_cents?`<div class="card"><div class="row"><span class="mu">Meta do mês</span><span class="mu">${Math.min(100,Math.round(month.t*100/prof.monthly_goal_cents))}%</span></div><div style="background:#0f1216;border-radius:8px;height:8px;margin:10px 0"><div style="width:${Math.min(100,Math.round(month.t*100/prof.monthly_goal_cents))}%;height:8px;border-radius:8px;background:var(--ac)"></div></div><div class="mu">${brl(month.t)} de ${brl(prof.monthly_goal_cents)}</div></div>`:''}
  ${all.length?'':'<div class="card"><b>Comece aqui</b><p class="mu">Registre seu primeiro ganho na aba Ganhos.</p></div>'}
  <h2>Divisão do mês (recomendada, base ${p.split_base==='net'?'lucro':'bruto'})</h2><div class="card">
  <div class="row"><span>Contas ${p.split_bills_pct}%</span><b>${r(p.split_bills_pct)}</b></div>
@@ -118,17 +124,19 @@ async function inicio(){
  $('#pf').onclick=()=>{tab='perfil';perfil()}}
 
 async function despesas(){
+ editId=null;
  shell('<p class="mu">Carregando…</p>');const l=await rows('expenses',{by:'spent_at',sel:',categories(name)'});
  const w=sumC(l.filter(e=>e.kind==='work'&&inMonth(e.spent_at))),p=sumC(l.filter(e=>e.kind==='personal'&&inMonth(e.spent_at)));
  shell(`<h1>Despesas</h1><div class="grid"><div class="card"><div class="mu">Trabalho (mês)</div><b>${brl(w)}</b></div><div class="card"><div class="mu">Pessoais (mês)</div><b>${brl(p)}</b></div></div>
  <div class="card"><select id="kd"><option value="work">Do trabalho</option><option value="personal">Pessoal</option></select>
  <input id="ct" list="cts" placeholder="Categoria (Combustível, Recarga, Internet…)"><datalist id="cts">${['Combustível','Recarga elétrica','Alimentação','Manutenção','Pneus','Peças','Internet','Lazer','Compras'].map(x=>`<option value="${x}">`).join('')}</datalist>
  <input id="vl" inputmode="decimal" placeholder="Valor (R$)"><div class="msg" id="msg"></div><button id="add">Salvar despesa</button></div>
- ${l.map(e=>`<div class="card row"><div><b>${brl(e.amount_cents)}</b><div class="mu">${esc(e.categories?.name||'Sem categoria')} · ${e.kind==='work'?'trabalho':'pessoal'} · ${new Date(e.spent_at).toLocaleDateString('pt-BR')}</div></div><button class="sm" data-id="${e.id}">Excluir</button></div>`).join('')}`);
+ ${l.map(e=>`<div class="card row"><div><b>${brl(e.amount_cents)}</b><div class="mu">${esc(e.categories?.name||'Sem categoria')} · ${e.kind==='work'?'trabalho':'pessoal'} · ${new Date(e.spent_at).toLocaleDateString('pt-BR')}</div></div><div><button class="sm" data-ed="${e.id}" style="color:var(--ac)">Editar</button> <button class="sm" data-id="${e.id}">Excluir</button></div></div>`).join('')}`);
  $('#add').onclick=async()=>{const v=toCents($('#vl').value),k=$('#kd').value;if(!v)return $('#msg').textContent='Informe o valor.';
   const n=$('#ct').value.trim(),cid=n?await cat(n,k):null;
-  const{error}=await sb.from('expenses').insert({kind:k,category_id:cid,amount_cents:v});if(error)return $('#msg').textContent=error.message;despesas()};
- bind('button.sm',async id=>{if(confirm('Excluir?')){await sb.from('expenses').delete().eq('id',id);despesas()}})}
+  const row={kind:k,category_id:cid,amount_cents:v};const{error}=await(editId?sb.from('expenses').update(row).eq('id',editId):sb.from('expenses').insert(row));if(error)return $('#msg').textContent=error.message;despesas()};
+ bind('button.sm[data-id]',async id=>{if(confirm('Excluir?')){await sb.from('expenses').delete().eq('id',id);despesas()}});
+ document.querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>{const e=l.find(x=>x.id===b.dataset.ed);editId=e.id;$('#kd').value=e.kind;$('#ct').value=e.categories?.name||'';$('#vl').value=(e.amount_cents/100).toFixed(2).replace('.',',');$('#add').textContent='Atualizar despesa';scrollTo(0,0)})}
 
 const billInfo=b=>{const t=new Date(),last=new Date(t.getFullYear(),t.getMonth()+1,0).getDate(),due=new Date(t.getFullYear(),t.getMonth(),Math.min(b.due_day,last));
  const days=Math.ceil((due-new Date(t.getFullYear(),t.getMonth(),t.getDate()))/864e5);
@@ -190,7 +198,7 @@ async function metas(){
   const v=toCents(prompt('Quanto adicionar? (R$)')||'0');if(v){await sb.from('goals').update({saved_cents:g.saved_cents+v}).eq('id',g.id);metas()}})}
 let vid=null;const VT={bike:'Bicicleta',ebike:'Bicicleta elétrica',emoto:'Moto elétrica',moto:'Moto a combustão',scooter:'Patinete elétrico',other:'Outro'};
 const ELE=['ebike','emoto','scooter'],r3=c=>'R$ '+(c/100).toFixed(3).replace('.',','),n1=x=>x.toFixed(1).replace('.',',');
-function mais(){shell(`<h1>Mais</h1>${[['metas','Metas','Quanto falta e quanto ganhar por dia'],['veiculos','Veículos','Recargas, combustível e manutenção'],['desempenho','Desempenho','Ganhos por hora, por app e por dia'],['perfil','Perfil','Conta, exportar dados e sair']].map(([k,t,d])=>`<div class="card row" data-go="${k}"><div><b>${t}</b><div class="mu">${d}</div></div><span class="mu">›</span></div>`).join('')}`);
+function mais(){shell(`<h1>Mais</h1>${[['metas','Metas','Quanto falta e quanto ganhar por dia'],['veiculos','Veículos','Recargas, combustível e manutenção'],['desempenho','Desempenho','Ganhos por hora, por app e por dia'],['relatorios','Relatórios','Gráficos e comparação entre meses'],['perfil','Perfil','Conta, divisão, dados e sair']].map(([k,t,d])=>`<div class="card row" data-go="${k}"><div><b>${t}</b><div class="mu">${d}</div></div><span class="mu">›</span></div>`).join('')}`);
  document.querySelectorAll('[data-go]').forEach(c=>c.onclick=()=>{tab=c.dataset.go;render()})}
 
 async function veiculos(){
@@ -256,13 +264,45 @@ async function desempenho(){
  <h2>Por aplicativo</h2>${P.map(p=>`<div class="card"><div class="row"><b>${esc(p.k)}</b><b>${brl(p.t)}</b></div><div class="mu">${p.n} entregas · média ${p.n?brl(p.avg):'—'} · ${p.hr?brl(p.hr)+'/h':'sem horas'}${p.pk?' · '+r3(p.pk)+'/km':''}</div></div>`).join('')}`)}
 function csv(rows){if(!rows.length)return '';const k=Object.keys(rows[0]);return [k.join(';'),...rows.map(r=>k.map(c=>'"'+String(r[c]??'').replace(/"/g,'""')+'"').join(';'))].join('\n')}
 function baixar(nome,txt){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+txt],{type:'text/csv'}));a.download=nome;document.body.appendChild(a);a.click();a.remove()}
+const DOCS={termos:['Termos de uso',['O RODDA é uma ferramenta gratuita de organização financeira para entregadores. Os valores que você registra são informados por você; o app não se conecta a aplicativos de entrega nem a bancos.','Cálculos, divisões (como 50/30/20), metas e projeções são estimativas para sua organização. Não são garantia de ganho nem aconselhamento financeiro.','Você é responsável pelas informações que cadastra e por manter sua senha em segurança. Não use o app de forma ilegal ou para tentar acessar dados de outras pessoas.','O serviço pode ser alterado ou interrompido. Versão inicial, sujeita a revisão jurídica antes do lançamento comercial.']],
+privacidade:['Política de Privacidade',['Dados que coletamos: e-mail, nome (opcional) e os registros que você cadastra (ganhos, despesas, contas, depósitos, veículos, metas). Não pedimos senhas de aplicativos de entrega nem de bancos e não rastreamos sua localização.','Para que usamos: apenas para fazer o app funcionar para você. Não vendemos seus dados. Cada conta acessa somente os próprios dados.','Onde ficam: em banco de dados hospedado no Supabase, com acesso restrito por conta (RLS).','Seus direitos (LGPD): consultar seus dados no app, corrigir nome e meta em Perfil, exportar em CSV e excluir a conta com todos os dados, também em Perfil.','Contato do responsável: [a definir]. Versão inicial, sujeita a revisão jurídica antes do lançamento comercial.']]};
+function doc(k){const[t,p]=DOCS[k];app.innerHTML=`<div class="row"><h1>${t}</h1><button class="sm" id="bk" style="color:var(--ac)">‹ Voltar</button></div>${p.map(x=>`<div class="card">${x}</div>`).join('')}`;$('#bk').onclick=()=>render()}
+
+function onboarding(){
+ app.innerHTML=`<h1>Bem-vindo ao RODDA</h1><p class="mu">Responda rápido. Dá para pular.</p><div class="card"><input id="nm" placeholder="Seu nome"><input id="ap" placeholder="App que você usa (iFood, 99Food, Keeta…)"><input id="dw" inputmode="numeric" placeholder="Dias de trabalho por semana"><input id="mg" inputmode="decimal" placeholder="Meta de ganhos do mês (R$)">
+ <p class="mu">Divisão padrão: 50% contas, 30% pessoal, 20% reserva. Dá para mudar em Perfil.</p><div class="msg" id="msg"></div><button id="ok">Começar</button><br><br><button class="ghost" id="sk">Pular</button></div>`;
+ const fim=async s=>{const u={onboarding_done:true};if(s){if($('#nm').value)u.full_name=$('#nm').value.trim();const d=parseInt($('#dw').value);if(d>=1&&d<=7)u.work_days_per_week=d;const g=toCents($('#mg').value);if(g)u.monthly_goal_cents=g;const a=$('#ap').value.trim();if(a)await sb.from('platforms').insert({name:a})}
+  const{error}=await sb.from('profiles').update(u).eq('id',user.id);if(error)return $('#msg').textContent=error.message;ob=true;render()};
+ $('#ok').onclick=()=>fim(true);$('#sk').onclick=()=>fim(false)}
+
+async function relatorios(){
+ shell('<p class="mu">Carregando…</p>');const[all,ex]=await Promise.all([loadEarnings(),rows('expenses',{by:'spent_at'})]);
+ const now=new Date(),M=[],D=[],tm=x=>new Date(x),inR=(x,a,b)=>{const t=tm(x);return t>=a&&t<b};
+ for(let i=5;i>=0;i--){const a=new Date(now.getFullYear(),now.getMonth()-i,1),b=new Date(a.getFullYear(),a.getMonth()+1,1);
+  const g=sum(all.filter(x=>inR(x.earned_at,a,b))).t,w=sumC(ex.filter(x=>x.kind==='work'&&inR(x.spent_at,a,b)));M.push({l:a.toLocaleDateString('pt-BR',{month:'short'}).replace('.',''),g,w,p:g-w})}
+ for(let i=6;i>=0;i--){const a=new Date(now.getFullYear(),now.getMonth(),now.getDate()-i),b=new Date(+a+864e5);D.push({l:a.toLocaleDateString('pt-BR',{weekday:'short'}).replace('.',''),g:sum(all.filter(x=>inR(x.earned_at,a,b))).t})}
+ const bars=(arr,k)=>{const mx=Math.max(1,...arr.map(a=>a[k]));return`<div style="display:flex;gap:6px;align-items:flex-end;height:130px">${arr.map(a=>`<div style="flex:1;text-align:center"><div class="mu" style="font-size:10px">${a[k]?Math.round(a[k]/100):''}</div><div style="background:var(--ac);border-radius:6px 6px 0 0;height:${Math.round(a[k]/mx*90)}px;min-height:2px"></div><div class="mu" style="font-size:11px">${a.l}</div></div>`).join('')}</div>`};
+ const c=M[5],p=M[4],dl=p.g?Math.round((c.g-p.g)*100/p.g):null;
+ shell(`<h1>Relatórios</h1><h2>Ganhos dos últimos 7 dias (R$)</h2><div class="card">${bars(D,'g')}</div>
+ <h2>Ganhos por mês (R$)</h2><div class="card">${bars(M,'g')}</div>
+ <h2>Este mês × mês anterior</h2><div class="card"><div class="row"><span>Ganhos</span><b>${brl(c.g)}</b></div><div class="mu">${dl===null?'Sem dados do mês anterior':(dl>=0?'+':'')+dl+'% em relação a '+brl(p.g)}</div></div>
+ <h2>Resumo mensal</h2>${M.slice().reverse().map(m=>`<div class="card"><div class="row"><b>${m.l}</b><b style="color:${m.p<0?'var(--er)':'var(--ok)'}">${brl(m.p)}</b></div><div class="mu">Ganhos ${brl(m.g)} · Gastos do trabalho ${brl(m.w)}</div></div>`).join('')}<p class="mu">Lucro = ganhos − despesas do trabalho. Valores calculados dos seus registros.</p>`)}
+
 async function perfil(){
- shell(`<h1>Perfil</h1><div class="card"><div class="mu">Conta</div><b>${esc(user.email)}</b></div>
- <div class="card"><b>Seus dados</b><p class="mu">Baixe seus ganhos e despesas em planilha (CSV).</p><div class="msg" id="m2"></div><button class="ghost" id="ex">Exportar CSV</button></div>
- <button class="ghost" id="out">Sair</button>`);
- $('#ex').onclick=async()=>{$('#m2').textContent='';const{data,error}=await sb.rpc('export_my_data');if(error)return $('#m2').textContent=error.message;
-  baixar('rodda-ganhos.csv',csv(data.earnings));baixar('rodda-despesas.csv',csv(data.expenses))};
- $('#out').onclick=async()=>{await sb.auth.signOut();user=null;render()}}
+ shell('<p class="mu">Carregando…</p>');const{data:p}=await sb.from('profiles').select('*').single(),v=c=>c?(c/100).toFixed(2).replace('.',','):'';
+ shell(`<h1>Perfil</h1><div class="card"><div class="mu">Conta</div><b>${esc(user.email)}</b><br><br><input id="nm" placeholder="Seu nome" value="${esc(p?.full_name||'')}"><input id="mg" inputmode="decimal" placeholder="Meta mensal de ganhos (R$)" value="${v(p?.monthly_goal_cents)}"><div class="msg" id="m1"></div><button class="ghost" id="sd">Salvar dados</button></div>
+ <h2>Divisão dos ganhos (%)</h2><div class="card"><div style="display:flex;gap:8px"><input id="s1" inputmode="numeric" value="${p?.split_bills_pct}" title="Contas"><input id="s2" inputmode="numeric" value="${p?.split_personal_pct}" title="Pessoal"><input id="s3" inputmode="numeric" value="${p?.split_reserve_pct}" title="Reserva"></div>
+ <div class="mu" style="margin-bottom:8px">Contas · Pessoal · Reserva (soma 100)</div><select id="sb"><option value="gross" ${p?.split_base==='gross'?'selected':''}>Calcular sobre ganhos brutos</option><option value="net" ${p?.split_base==='net'?'selected':''}>Calcular sobre o lucro (após despesas do trabalho)</option></select><div class="msg" id="m2"></div><button class="ghost" id="ss">Salvar divisão</button></div>
+ <h2>Seus dados</h2><div class="card"><div class="msg" id="m3"></div><button class="ghost" id="ex">Exportar ganhos e despesas (CSV)</button><br><br><div class="row"><a id="tm" style="color:var(--ac)">Termos de uso</a><a id="pv" style="color:var(--ac)">Privacidade</a></div></div>
+ <button class="ghost" id="out">Sair</button><br><br><button class="ghost" id="del" style="color:var(--er)">Excluir minha conta e meus dados</button>`);
+ $('#sd').onclick=async()=>{const{error}=await sb.from('profiles').update({full_name:$('#nm').value.trim()||null,monthly_goal_cents:toCents($('#mg').value)||null}).eq('id',user.id);$('#m1').innerHTML=error?esc(error.message):'<span class="ok">Salvo.</span>'};
+ $('#ss').onclick=async()=>{const a=+$('#s1').value,b=+$('#s2').value,c=+$('#s3').value;if([a,b,c].some(x=>!(x>=0))||a+b+c!==100)return $('#m2').textContent='Os três valores devem somar 100.';
+  const{error}=await sb.from('profiles').update({split_bills_pct:a,split_personal_pct:b,split_reserve_pct:c,split_base:$('#sb').value}).eq('id',user.id);$('#m2').innerHTML=error?esc(error.message):'<span class="ok">Salvo.</span>'};
+ $('#ex').onclick=async()=>{$('#m3').textContent='';const{data,error}=await sb.rpc('export_my_data');if(error)return $('#m3').textContent=error.message;baixar('rodda-ganhos.csv',csv(data.earnings));baixar('rodda-despesas.csv',csv(data.expenses))};
+ $('#tm').onclick=()=>doc('termos');$('#pv').onclick=()=>doc('privacidade');
+ $('#out').onclick=async()=>{await sb.auth.signOut();user=null;render()};
+ $('#del').onclick=async()=>{if(!confirm('Isso apaga sua conta e TODOS os seus dados, sem volta. Continuar?')||prompt('Digite EXCLUIR para confirmar')!=='EXCLUIR')return;
+  const{error}=await sb.rpc('delete_my_account');if(error)return $('#m3').textContent=error.message;await sb.auth.signOut();user=null;render()}}
 
 boot();
 </script></body></html>
