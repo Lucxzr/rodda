@@ -18,7 +18,7 @@ input,select{width:100%;background:#0f1216;color:var(--tx);border:1px solid var(
 button{background:var(--ac);color:#06202e;border:0;border-radius:12px;padding:13px 16px;font-size:16px;font-weight:600;width:100%}
 button.ghost{background:transparent;color:var(--ac);border:1px solid var(--bd)}button.sm{width:auto;padding:6px 10px;font-size:13px;background:transparent;color:var(--er);border:1px solid var(--bd)}
 nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#0f1216;border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom)}
-nav a{flex:1;text-align:center;padding:14px 4px;color:var(--mu);font-size:13px}nav a.on{color:var(--ac);font-weight:600}
+nav a{flex:1;text-align:center;padding:14px 2px;color:var(--mu);font-size:11.5px}nav a.on{color:var(--ac);font-weight:600}
 .msg{color:var(--er);font-size:14px;min-height:20px}.ok{color:var(--ok)}
 </style></head><body><main id="app"></main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
@@ -52,7 +52,7 @@ function authView(msg=''){
   if(!user)return $('#msg').textContent='Conta criada. Confirme seu e-mail e entre.';render()};
 }
 
-function shell(html){app.innerHTML=html+`<nav><a data-t="inicio" class="${tab==='inicio'?'on':''}">Início</a><a data-t="ganhos" class="${tab==='ganhos'?'on':''}">Ganhos</a><a data-t="perfil" class="${tab==='perfil'?'on':''}">Perfil</a></nav>`;
+function shell(html){app.innerHTML=html+'<nav>'+TABS.map(([k,l])=>`<a data-t="${k}" class="${tab===k?'on':''}">${l}</a>`).join('')+'</nav>';
  document.querySelectorAll('nav a').forEach(a=>a.onclick=()=>{tab=a.dataset.t;render()})}
 
 const total=e=>e.amount_cents+e.tips_cents+(e.bonus_confirmed?e.bonus_cents:0);
@@ -65,25 +65,7 @@ async function loadEarnings(){const{data,error}=await sb.from('earnings').select
 
 async function render(){
  if(!user)return authView();
- if(tab==='inicio')return inicio();if(tab==='ganhos')return ganhos();return perfil()}
-
-async function inicio(){
- shell('<p class="mu">Carregando…</p>');
- const[all,{data:prof}]=await Promise.all([loadEarnings(),sb.from('profiles').select('*').single()]);
- const now=new Date(),d0=new Date(now.getFullYear(),now.getMonth(),now.getDate()),wk=new Date(d0-6*864e5),mo=new Date(now.getFullYear(),now.getMonth(),1);
- const f=d=>all.filter(e=>new Date(e.earned_at)>=d),today=sum(f(d0)),week=sum(f(wk)),month=sum(f(mo));
- const p=prof||{split_bills_pct:50,split_personal_pct:30,split_reserve_pct:20};
- const r=pc=>brl(Math.round(month.t*pc/100));
- shell(`<h1>Olá${prof?.full_name?', '+esc(prof.full_name.split(' ')[0]):''}</h1><p class="mu">Seu resumo</p>
- <div class="card"><div class="mu">Ganhos de hoje</div><div class="big">${brl(today.t)}</div><div class="mu">${today.n} entregas${today.n?' · média '+brl(today.avg):''}</div></div>
- <div class="grid"><div class="card"><div class="mu">Últimos 7 dias</div><b>${brl(week.t)}</b></div><div class="card"><div class="mu">Este mês</div><b>${brl(month.t)}</b></div>
- <div class="card"><div class="mu">Entregas no mês</div><b>${month.n}</b></div><div class="card"><div class="mu">Ganho por hora</div><b>${month.hr?brl(month.hr):'—'}</b></div></div>
- ${all.length?'':'<div class="card"><b>Comece aqui</b><p class="mu">Registre seu primeiro ganho na aba Ganhos.</p></div>'}
- <h2>Divisão do mês (recomendada)</h2><div class="card">
- <div class="row"><span>Contas ${p.split_bills_pct}%</span><b>${r(p.split_bills_pct)}</b></div>
- <div class="row"><span>Pessoal ${p.split_personal_pct}%</span><b>${r(p.split_personal_pct)}</b></div>
- <div class="row"><span>Reserva ${p.split_reserve_pct}%</span><b>${r(p.split_reserve_pct)}</b></div>
- <p class="mu">Valores recomendados. Isso não significa que o dinheiro já foi guardado.</p></div>`)}
+ return({inicio,ganhos,despesas,contas,dinheiro,metas,perfil}[tab]||inicio)()}
 
 async function ganhos(){
  shell('<p class="mu">Carregando…</p>');
@@ -109,5 +91,106 @@ async function perfil(){
  const{data:s}=await sb.from('subscriptions').select('plan_id,status').maybeSingle();
  shell(`<h1>Perfil</h1><div class="card"><div class="mu">Conta</div><b>${esc(user.email)}</b><br><br><div class="mu">Plano</div><b>${s?.plan_id==='pro'?'RODDA PRO':'RODDA FREE'}</b><p class="mu">PRO: preço a definir.</p></div><button class="ghost" id="out">Sair</button>`);
  $('#out').onclick=async()=>{await sb.auth.signOut();user=null;render()}}
+const TABS=[['inicio','Início'],['ganhos','Ganhos'],['despesas','Despesas'],['contas','Contas'],['dinheiro','Dinheiro'],['metas','Metas']];
+const mStart=()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(),1)};
+const inMonth=(d)=>new Date(d)>=mStart();
+async function cat(name,kind){let{data:ex}=await sb.from('categories').select('id').ilike('name',name).eq('kind',kind).maybeSingle();
+ if(ex)return ex.id;const r=await sb.from('categories').insert({name,kind}).select('id').single();return r.data?.id||null}
+const rows=async(t,o)=>{const{data}=await sb.from(t).select('*'+(o?.sel||'')).order(o?.by||'created_at',{ascending:false}).limit(300);return data||[]};
+const sumC=(l,k='amount_cents')=>l.reduce((s,e)=>s+(e[k]||0),0);
+function bind(id,fn){document.querySelectorAll(id).forEach(b=>b.onclick=()=>fn(b.dataset.id))}
+
+async function inicio(){
+ shell('<p class="mu">Carregando…</p>');
+ const[all,ex,{data:prof}]=await Promise.all([loadEarnings(),rows('expenses',{by:'spent_at'}),sb.from('profiles').select('*').single()]);
+ const now=new Date(),d0=new Date(now.getFullYear(),now.getMonth(),now.getDate()),wk=new Date(d0-6*864e5),mo=mStart();
+ const f=d=>all.filter(e=>new Date(e.earned_at)>=d),today=sum(f(d0)),week=sum(f(wk)),month=sum(f(mo));
+ const work=sumC(ex.filter(e=>e.kind==='work'&&inMonth(e.spent_at))),profit=month.t-work;
+ const p=prof||{split_bills_pct:50,split_personal_pct:30,split_reserve_pct:20,split_base:'gross'};
+ const base=p.split_base==='net'?Math.max(profit,0):month.t,r=pc=>brl(Math.round(base*pc/100));
+ shell(`<div class="row"><h1>Olá${prof?.full_name?', '+esc(prof.full_name.split(' ')[0]):''}</h1><button class="sm" id="pf" style="color:var(--ac)">Perfil</button></div>
+ <div class="card"><div class="mu">Ganhos de hoje</div><div class="big">${brl(today.t)}</div><div class="mu">${today.n} entregas${today.n?' · média '+brl(today.avg):''}</div></div>
+ <div class="grid"><div class="card"><div class="mu">Últimos 7 dias</div><b>${brl(week.t)}</b></div><div class="card"><div class="mu">Este mês</div><b>${brl(month.t)}</b></div>
+ <div class="card"><div class="mu">Gasto p/ trabalhar</div><b>${brl(work)}</b></div><div class="card"><div class="mu">Lucro estimado</div><b style="color:${profit<0?'var(--er)':'var(--ok)'}">${brl(profit)}</b></div>
+ <div class="card"><div class="mu">Entregas no mês</div><b>${month.n}</b></div><div class="card"><div class="mu">Ganho por hora</div><b>${month.hr?brl(month.hr):'—'}</b></div></div>
+ ${all.length?'':'<div class="card"><b>Comece aqui</b><p class="mu">Registre seu primeiro ganho na aba Ganhos.</p></div>'}
+ <h2>Divisão do mês (recomendada, base ${p.split_base==='net'?'lucro':'bruto'})</h2><div class="card">
+ <div class="row"><span>Contas ${p.split_bills_pct}%</span><b>${r(p.split_bills_pct)}</b></div>
+ <div class="row"><span>Pessoal ${p.split_personal_pct}%</span><b>${r(p.split_personal_pct)}</b></div>
+ <div class="row"><span>Reserva ${p.split_reserve_pct}%</span><b>${r(p.split_reserve_pct)}</b></div>
+ <p class="mu">Valores recomendados. Só vira dinheiro guardado quando você registra em Dinheiro.</p></div>`);
+ $('#pf').onclick=()=>{tab='perfil';perfil()}}
+
+async function despesas(){
+ shell('<p class="mu">Carregando…</p>');const l=await rows('expenses',{by:'spent_at',sel:',categories(name)'});
+ const w=sumC(l.filter(e=>e.kind==='work'&&inMonth(e.spent_at))),p=sumC(l.filter(e=>e.kind==='personal'&&inMonth(e.spent_at)));
+ shell(`<h1>Despesas</h1><div class="grid"><div class="card"><div class="mu">Trabalho (mês)</div><b>${brl(w)}</b></div><div class="card"><div class="mu">Pessoais (mês)</div><b>${brl(p)}</b></div></div>
+ <div class="card"><select id="kd"><option value="work">Do trabalho</option><option value="personal">Pessoal</option></select>
+ <input id="ct" list="cts" placeholder="Categoria (Combustível, Recarga, Internet…)"><datalist id="cts">${['Combustível','Recarga elétrica','Alimentação','Manutenção','Pneus','Peças','Internet','Lazer','Compras'].map(x=>`<option value="${x}">`).join('')}</datalist>
+ <input id="vl" inputmode="decimal" placeholder="Valor (R$)"><div class="msg" id="msg"></div><button id="add">Salvar despesa</button></div>
+ ${l.map(e=>`<div class="card row"><div><b>${brl(e.amount_cents)}</b><div class="mu">${esc(e.categories?.name||'Sem categoria')} · ${e.kind==='work'?'trabalho':'pessoal'} · ${new Date(e.spent_at).toLocaleDateString('pt-BR')}</div></div><button class="sm" data-id="${e.id}">Excluir</button></div>`).join('')}`);
+ $('#add').onclick=async()=>{const v=toCents($('#vl').value),k=$('#kd').value;if(!v)return $('#msg').textContent='Informe o valor.';
+  const n=$('#ct').value.trim(),cid=n?await cat(n,k):null;
+  const{error}=await sb.from('expenses').insert({kind:k,category_id:cid,amount_cents:v});if(error)return $('#msg').textContent=error.message;despesas()};
+ bind('button.sm',async id=>{if(confirm('Excluir?')){await sb.from('expenses').delete().eq('id',id);despesas()}})}
+
+const billInfo=b=>{const t=new Date(),last=new Date(t.getFullYear(),t.getMonth()+1,0).getDate(),due=new Date(t.getFullYear(),t.getMonth(),Math.min(b.due_day,last));
+ const days=Math.ceil((due-new Date(t.getFullYear(),t.getMonth(),t.getDate()))/864e5);
+ const st=b.paid_cents>=b.amount_cents?'paid':days<0?'late':b.paid_cents>0?'partial':'pending';
+ return{days,st,lbl:{paid:'Pago',late:'Atrasado',partial:'Parcial',pending:'Pendente'}[st],cl:{paid:'var(--ok)',late:'var(--er)',partial:'var(--ac)',pending:'var(--mu)'}[st]}};
+async function contas(){
+ shell('<p class="mu">Carregando…</p>');const l=await rows('fixed_bills',{by:'due_day'});l.sort((a,b)=>a.due_day-b.due_day);
+ const falta=l.reduce((s,b)=>s+Math.max(b.amount_cents-b.reserved_cents-b.paid_cents,0),0);
+ shell(`<h1>Contas fixas</h1><div class="card"><div class="mu">Ainda falta juntar</div><div class="big">${brl(falta)}</div></div>
+ <div class="card"><input id="nm" placeholder="Nome (Parcela da moto, Internet…)"><div class="grid"><input id="vl" inputmode="decimal" placeholder="Valor (R$)"><input id="dd" inputmode="numeric" placeholder="Dia do vencimento"></div>
+ <div class="msg" id="msg"></div><button id="add">Salvar conta</button></div>
+ ${l.map(b=>{const i=billInfo(b);return`<div class="card"><div class="row"><b>${esc(b.name)}</b><span style="color:${i.cl}">${i.lbl}</span></div>
+ <div class="mu">${brl(b.amount_cents)} · dia ${b.due_day}${i.st==='paid'?'':i.days>=0?' · vence em '+i.days+' dia(s)':' · venceu há '+(-i.days)+' dia(s)'}</div>
+ <div class="mu">Reservado ${brl(b.reserved_cents)} · Pago ${brl(b.paid_cents)}</div><br>
+ <div class="grid"><button class="ghost" data-a="r" data-id="${b.id}">Reservar</button><button data-a="p" data-id="${b.id}">Registrar pagamento</button></div>
+ <br><div class="row"><button class="sm" data-a="n" data-id="${b.id}" style="color:var(--mu)">Reiniciar mês</button><button class="sm" data-a="d" data-id="${b.id}">Excluir</button></div></div>`}).join('')}`);
+ $('#add').onclick=async()=>{const v=toCents($('#vl').value),d=parseInt($('#dd').value);if(!$('#nm').value||!v||!(d>=1&&d<=31))return $('#msg').textContent='Preencha nome, valor e dia (1 a 31).';
+  const{error}=await sb.from('fixed_bills').insert({name:$('#nm').value.trim(),amount_cents:v,due_day:d});if(error)return $('#msg').textContent=error.message;contas()};
+ document.querySelectorAll('button[data-a]').forEach(b=>b.onclick=async()=>{const id=b.dataset.id,a=b.dataset.a,x=l.find(z=>z.id===id);
+  if(a==='d'){if(!confirm('Excluir conta?'))return;await sb.from('fixed_bills').delete().eq('id',id)}
+  else if(a==='n'){if(!confirm('Zerar reservado e pago deste mês?'))return;await sb.from('fixed_bills').update({reserved_cents:0,paid_cents:0,status:'pending'}).eq('id',id)}
+  else{const v=toCents(prompt(a==='r'?'Quanto você reservou? (R$)':'Quanto foi pago? (R$)')||'0');if(!v)return;
+   const u=a==='r'?{reserved_cents:x.reserved_cents+v}:{paid_cents:x.paid_cents+v};
+   if(a==='p')u.status=(x.paid_cents+v>=x.amount_cents)?'paid':'partial';await sb.from('fixed_bills').update(u).eq('id',id)}
+  contas()})}
+
+const BK={bills:'Contas',personal:'Pessoal',reserve:'Reserva',cdb:'CDB'};
+async function dinheiro(){
+ shell('<p class="mu">Carregando…</p>');
+ const[dp,wd,all,ex,{data:p}]=await Promise.all([rows('deposits',{by:'deposited_at'}),rows('withdrawals',{by:'withdrawn_at'}),loadEarnings(),rows('expenses',{by:'spent_at'}),sb.from('profiles').select('*').single()]);
+ const gm=sum(all.filter(e=>inMonth(e.earned_at))).t,wm=sumC(ex.filter(e=>e.kind==='work'&&inMonth(e.spent_at)));
+ const base=p?.split_base==='net'?Math.max(gm-wm,0):gm,rec={bills:p?.split_bills_pct??50,personal:p?.split_personal_pct??30,reserve:p?.split_reserve_pct??20};
+ const bal=k=>sumC(dp.filter(x=>x.bucket===k))-sumC(wd.filter(x=>x.bucket===k)),dm=k=>sumC(dp.filter(x=>x.bucket===k&&inMonth(x.deposited_at)));
+ shell(`<h1>Dinheiro</h1><h2>Saldo guardado (o que você registrou)</h2><div class="grid">${Object.keys(BK).map(k=>`<div class="card"><div class="mu">${BK[k]}</div><b>${brl(bal(k))}</b></div>`).join('')}</div>
+ <h2>Neste mês: recomendado × depositado</h2><div class="card">${Object.keys(rec).map(k=>{const r=Math.round(base*rec[k]/100);return`<div class="row"><span>${BK[k]}</span><span class="mu">${brl(r)} rec. · <b style="color:var(--tx)">${brl(dm(k))}</b> dep.</span></div>`}).join('')}</div>
+ <div class="card"><select id="tp"><option value="deposits">Depósito (guardei)</option><option value="withdrawals">Retirada (tirei)</option></select>
+ <select id="bk">${Object.keys(BK).map(k=>`<option value="${k}">${BK[k]}</option>`).join('')}</select><input id="vl" inputmode="decimal" placeholder="Valor (R$)">
+ <div class="msg" id="msg"></div><button id="add">Registrar</button></div>
+ ${[...dp.map(x=>({...x,t:'Depósito',d:x.deposited_at,tb:'deposits'})),...wd.map(x=>({...x,t:'Retirada',d:x.withdrawn_at,tb:'withdrawals'}))].sort((a,b)=>new Date(b.d)-new Date(a.d)).slice(0,30).map(x=>`<div class="card row"><div><b>${x.t==='Retirada'?'−':'+'}${brl(x.amount_cents)}</b><div class="mu">${x.t} · ${BK[x.bucket]} · ${new Date(x.d).toLocaleDateString('pt-BR')}</div></div><button class="sm" data-id="${x.id}" data-tb="${x.tb}">Excluir</button></div>`).join('')}`);
+ $('#add').onclick=async()=>{const v=toCents($('#vl').value);if(!v)return $('#msg').textContent='Informe o valor.';
+  const t=$('#tp').value;if(t==='withdrawals'&&v>bal($('#bk').value))return $('#msg').textContent='Retirada maior que o saldo registrado.';
+  const{error}=await sb.from(t).insert({bucket:$('#bk').value,amount_cents:v});if(error)return $('#msg').textContent=error.message;dinheiro()};
+ document.querySelectorAll('button.sm').forEach(b=>b.onclick=async()=>{if(confirm('Excluir registro?')){await sb.from(b.dataset.tb).delete().eq('id',b.dataset.id);dinheiro()}})}
+
+async function metas(){
+ shell('<p class="mu">Carregando…</p>');const l=await rows('goals');
+ shell(`<h1>Metas</h1><div class="card"><input id="tt" placeholder="Meta (Juntar R$ 500, Parcela da moto…)"><div class="grid"><input id="vl" inputmode="decimal" placeholder="Valor (R$)"><input id="dl" type="date"></div>
+ <div class="msg" id="msg"></div><button id="add">Criar meta</button></div>
+ ${l.map(g=>{const pc=Math.min(100,Math.round(g.saved_cents*100/g.target_cents)),fl=Math.max(g.target_cents-g.saved_cents,0),dd=g.deadline?Math.ceil((new Date(g.deadline+'T23:59:59')-new Date())/864e5):null;
+ return`<div class="card"><div class="row"><b>${esc(g.title)}</b><span class="mu">${pc}%</span></div><div style="background:#0f1216;border-radius:8px;height:8px;margin:10px 0"><div style="width:${pc}%;height:8px;border-radius:8px;background:var(--ac)"></div></div>
+ <div class="mu">${brl(g.saved_cents)} de ${brl(g.target_cents)} · falta ${brl(fl)}</div>
+ ${dd>0&&fl?`<div class="mu">Estimativa: ${brl(Math.ceil(fl/dd))}/dia ou ${brl(Math.ceil(fl/Math.max(dd/7,1)))}/semana até o prazo (${dd} dias)</div>`:dd<=0&&fl?'<div class="mu" style="color:var(--er)">Prazo vencido</div>':''}<br>
+ <div class="grid"><button data-a="a" data-id="${g.id}">Adicionar valor</button><button class="sm" data-a="d" data-id="${g.id}" style="padding:13px">Excluir</button></div></div>`}).join('')}`);
+ $('#add').onclick=async()=>{const v=toCents($('#vl').value);if(!$('#tt').value||!v)return $('#msg').textContent='Informe título e valor.';
+  const{error}=await sb.from('goals').insert({title:$('#tt').value.trim(),target_cents:v,deadline:$('#dl').value||null});
+  if(error)return $('#msg').textContent=error.message.includes('FREE')?'Limite do plano FREE: 2 metas.':error.message;metas()};
+ document.querySelectorAll('button[data-a]').forEach(b=>b.onclick=async()=>{const g=l.find(z=>z.id===b.dataset.id);
+  if(b.dataset.a==='d'){if(confirm('Excluir meta?')){await sb.from('goals').delete().eq('id',g.id);metas()}return}
+  const v=toCents(prompt('Quanto adicionar? (R$)')||'0');if(v){await sb.from('goals').update({saved_cents:g.saved_cents+v}).eq('id',g.id);metas()}})}
 boot();
 </script></body></html>
