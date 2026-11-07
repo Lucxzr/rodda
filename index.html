@@ -51,6 +51,12 @@ nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--surface
 nav a{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 2px 8px;color:var(--text-2);font-size:11px;font-weight:500}
 nav a.on{color:var(--primary);font-weight:600}
 nav a.on::before{content:"";position:absolute;top:0;left:32%;right:32%;height:2px;border-radius:0 0 2px 2px;background:var(--primary)}
+/* seções recolhíveis e abas */
+summary{cursor:pointer;color:var(--text-2);font-size:var(--fs-sm);padding:6px 0;list-style:none}summary::-webkit-details-marker{display:none}
+details.more{margin-bottom:var(--s-3)}
+details.sec>summary{display:flex;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:14px var(--s-4);color:var(--text);font-weight:600;font-size:15px;margin-bottom:var(--s-3)}
+details.sec>summary::after{content:"›";color:var(--text-2)}details.sec[open]>summary::after{content:"⌄"}
+.seg{display:flex;gap:var(--s-2);margin:var(--s-3) 0}.seg button{background:transparent;color:var(--text-2);border:1px solid var(--border)}.seg button.on{background:var(--surface);color:var(--text);border-color:var(--primary)}
 /* feedback e marca */
 .toast{position:fixed;left:50%;bottom:calc(92px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--surface);color:var(--text);border:1px solid var(--border);border-left:3px solid var(--success);padding:10px 18px;border-radius:var(--r-md);z-index:9;font-size:14px;font-weight:600}
 .brand{display:flex;align-items:center;gap:10px;margin:var(--s-3) 0 var(--s-2)}
@@ -64,7 +70,7 @@ const $=s=>document.querySelector(s),app=$('#app');
 const brl=c=>(c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const toCents=v=>Math.round(parseFloat(String(v).replace(/\./g,'').replace(',','.')||'0')*100);
 const esc=s=>String(s??'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
-let tab='inicio',user=null,mode='login',ob=null,editId=null;
+let tab='inicio',user=null,mode='login',ob=null,editId=null,showAll={};
 
 async function boot(){const{data}=await sb.auth.getSession();user=data.session?.user||null;render()}
 sb.auth.onAuthStateChange((_e,s)=>{user=s?.user||null});
@@ -89,7 +95,8 @@ function authView(msg=''){ob=null;
 }
 
 function shell(html){app.innerHTML=html+'<nav>'+TABS.map(([k,l])=>`<a data-t="${k}" class="${tab===k||(k==='mais'&&SUB.includes(tab))?'on':''}"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${IC[k]}</svg><span>${l}</span></a>`).join('')+'</nav>';
- document.querySelectorAll('nav a').forEach(a=>a.onclick=()=>{tab=a.dataset.t;scrollTo(0,0);render()})}
+ document.querySelectorAll('nav a').forEach(a=>a.onclick=()=>{tab=a.dataset.t;scrollTo(0,0);render()});
+ document.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{tab=b.dataset.s;scrollTo(0,0);render()})}
 
 const total=e=>e.amount_cents+e.tips_cents+(e.bonus_confirmed?e.bonus_cents:0);
 function sum(list){const t=list.reduce((s,e)=>s+total(e),0),n=list.reduce((s,e)=>s+e.deliveries,0);
@@ -113,12 +120,13 @@ async function ganhos(){
  shell(`<h1>Ganhos</h1><div class="card">
  <input id="app_" list="pls" placeholder="Aplicativo (iFood, 99Food, Keeta…)"><datalist id="pls">${(pl||[]).map(x=>`<option value="${esc(x.name)}">`).join('')}</datalist><div style="display:flex;gap:6px;flex-wrap:wrap;margin:-4px 0 10px">${(pl||[]).map(x=>`<button class="sm" data-pl="${esc(x.name)}" style="color:var(--text-2)">${esc(x.name)}</button>`).join('')}</div>
  <input id="val" inputmode="decimal" placeholder="Valor recebido (R$)">
- <div class="grid"><input id="ent" inputmode="numeric" placeholder="Entregas"><input id="min" inputmode="numeric" placeholder="Minutos trabalhados"></div>
+ <details class="more"><summary>Mais detalhes (entregas, bônus, gorjeta)</summary><div class="grid" style="margin-top:10px"><input id="ent" inputmode="numeric" placeholder="Entregas"><input id="min" inputmode="numeric" placeholder="Minutos trabalhados"></div>
  <div class="grid"><input id="bon" inputmode="decimal" placeholder="Bônus (R$)"><input id="tip" inputmode="decimal" placeholder="Gorjeta (R$)"></div>
- <label class="mu"><input type="checkbox" id="bc" style="width:auto;margin-right:8px">Bônus já confirmado</label><br><br>
+ <label class="mu"><input type="checkbox" id="bc" style="width:auto;margin-right:8px">Bônus já confirmado</label></details><br>
  <div class="msg" id="msg"></div><button id="add">Salvar ganho</button></div>
  ${all.length?'':'<div class="card"><p class="mu">Nenhum ganho ainda. Preencha o valor acima e toque em Salvar ganho.</p></div>'}
- ${Object.entries(days).map(([k,l])=>`<h2>${k} · ${brl(sum(l).t)}</h2>`+l.map(e=>`<div class="card row"><div><b style="color:var(--success)">${brl(total(e))}</b><div class="mu">${esc(e.platforms?.name||'Sem app')} · ${e.deliveries} entregas</div></div><div><button class="sm" data-ed="${e.id}" style="color:var(--text-2)">Editar</button> <button class="sm" data-id="${e.id}">Excluir</button></div></div>`).join('')).join('')}`);
+ ${Object.entries(days).slice(0,showAll.g?999:7).map(([k,l])=>`<h2>${k} · ${brl(sum(l).t)}</h2>`+l.map(e=>`<div class="card row"><div><b style="color:var(--success)">${brl(total(e))}</b><div class="mu">${esc(e.platforms?.name||'Sem app')} · ${e.deliveries} entregas</div></div><div><button class="sm" data-ed="${e.id}" style="color:var(--text-2)">Editar</button> <button class="sm" data-id="${e.id}">Excluir</button></div></div>`).join('')).join('')}${Object.keys(days).length>7&&!showAll.g?'<button class="ghost" id="vm">Ver mais dias</button>':''}`);
+ if($('#vm'))$('#vm').onclick=()=>{showAll.g=true;ganhos()};
  $('#add').onclick=async()=>{const v=toCents($('#val').value);if(!v)return $('#msg').textContent='Informe o valor recebido.';
   let pid=null;const nm=$('#app_').value.trim();
   if(nm){let{data:ex}=await sb.from('platforms').select('id').ilike('name',nm).maybeSingle();
@@ -128,10 +136,11 @@ async function ganhos(){
  document.querySelectorAll('button.sm[data-id]').forEach(b=>b.onclick=async()=>{if(confirm('Excluir este ganho?')){await sb.from('earnings').delete().eq('id',b.dataset.id);ganhos()}});
  document.querySelectorAll('[data-pl]').forEach(b=>b.onclick=()=>{$('#app_').value=b.dataset.pl});
  const m=c=>c?(c/100).toFixed(2).replace('.',','):'';
- document.querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>{const e=all.find(x=>x.id===b.dataset.ed);editId=e.id;$('#app_').value=e.platforms?.name||'';$('#val').value=m(e.amount_cents);$('#ent').value=e.deliveries||'';$('#min').value=e.minutes_worked||'';$('#bon').value=m(e.bonus_cents);$('#tip').value=m(e.tips_cents);$('#bc').checked=e.bonus_confirmed;$('#add').textContent='Atualizar ganho';scrollTo(0,0)})}
+ document.querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>{const e=all.find(x=>x.id===b.dataset.ed);editId=e.id;$('#app_').value=e.platforms?.name||'';$('#val').value=m(e.amount_cents);$('#ent').value=e.deliveries||'';$('#min').value=e.minutes_worked||'';$('#bon').value=m(e.bonus_cents);$('#tip').value=m(e.tips_cents);$('#bc').checked=e.bonus_confirmed;document.querySelector('details.more').open=true;$('#add').textContent='Atualizar ganho';scrollTo(0,0)})}
 
 const TABS=[['inicio','Início'],['ganhos','Ganhos'],['despesas','Gastos'],['dinheiro','Dinheiro'],['mais','Mais']];
 const IC={inicio:'<path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/>',ganhos:'<path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/>',despesas:'<path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',dinheiro:'<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M16 15h2"/>',mais:'<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>'};
+const SEG=a=>`<h1>Análises</h1><div class="seg"><button data-s="desempenho" class="${a==='desempenho'?'on':''}">Desempenho</button><button data-s="relatorios" class="${a==='relatorios'?'on':''}">Relatórios</button></div>`;
 const SUB=['contas','metas','veiculos','veiculo','desempenho','relatorios','perfil'];
 function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),1900)}
 const mStart=()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(),1)};
@@ -145,44 +154,44 @@ function bind(id,fn){document.querySelectorAll(id).forEach(b=>b.onclick=()=>fn(b
 async function inicio(){
  shell('<p class="mu">Carregando…</p>');
  const[all,ex,{data:prof},bills]=await Promise.all([loadEarnings(),rows('expenses',{by:'spent_at'}),sb.from('profiles').select('*').single(),rows('fixed_bills')]);
- const now=new Date(),d0=new Date(now.getFullYear(),now.getMonth(),now.getDate()),wk=new Date(d0-6*864e5),mo=mStart();
- const f=d=>all.filter(e=>new Date(e.earned_at)>=d),today=sum(f(d0)),week=sum(f(wk)),month=sum(f(mo));
+ const now=new Date(),d0=new Date(now.getFullYear(),now.getMonth(),now.getDate()),mo=mStart();
+ const f=d=>all.filter(e=>new Date(e.earned_at)>=d),today=sum(f(d0)),month=sum(f(mo));
  const nb=bills.filter(b=>b.paid_cents<b.amount_cents).map(b=>({b,i:billInfo(b)})).sort((a,b)=>a.i.days-b.i.days)[0];
- const work=sumC(ex.filter(e=>e.kind==='work'&&inMonth(e.spent_at))),profit=month.t-work;
- const p=prof||{split_bills_pct:50,split_personal_pct:30,split_reserve_pct:20,split_base:'gross'};
- const base=p.split_base==='net'?Math.max(profit,0):month.t,r=pc=>brl(Math.round(base*pc/100));
+ const work=sumC(ex.filter(e=>e.kind==='work'&&inMonth(e.spent_at))),profit=month.t-work,pg=prof?.monthly_goal_cents?Math.min(100,Math.round(month.t*100/prof.monthly_goal_cents)):0;
  shell(`<div class="row"><h1>Olá${prof?.full_name?', '+esc(prof.full_name.split(' ')[0]):''}</h1><button class="sm" id="pf" style="color:var(--text-2)">Perfil</button></div>
  <div class="card"><div class="mu">Ganhos de hoje</div><div class="big" style="color:var(--success)">${brl(today.t)}</div><div class="mu">${today.n} entregas${today.n?' · média '+brl(today.avg):''}</div></div>
  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px"><button data-go="ganhos">+ Ganho</button><button class="ghost" data-go="despesas">+ Gasto</button><button class="ghost" data-go="dinheiro">+ Depósito</button></div>
+ <div class="card"><div class="mu">Este mês</div><div class="big" style="font-size:24px">${brl(month.t)}</div>
+ <div class="row" style="margin-top:10px"><span class="mu">Gastos do trabalho</span><b style="color:var(--danger)">${brl(work)}</b></div>
+ <div class="row"><span class="mu">Lucro estimado</span><b style="color:${profit<0?'var(--danger)':'var(--success)'}">${brl(profit)}</b></div></div>
  ${nb?`<div class="card row" data-go="contas"><div><div class="mu">Próxima conta</div><b>${esc(nb.b.name)} · ${brl(nb.b.amount_cents-nb.b.paid_cents)}</b><div class="mu" style="color:${nb.i.days<0?'var(--danger)':nb.i.days<=3?'var(--warning)':'var(--text-2)'}">${nb.i.days<0?'Atrasada há '+(-nb.i.days)+' dia(s)':nb.i.days===0?'Vence hoje':'Vence em '+nb.i.days+' dia(s)'}</div></div><span class="mu">›</span></div>`:''}
- <div class="grid"><div class="card"><div class="mu">Últimos 7 dias</div><b>${brl(week.t)}</b></div><div class="card"><div class="mu">Este mês</div><b>${brl(month.t)}</b></div>
- <div class="card"><div class="mu">Gasto p/ trabalhar</div><b style="color:var(--danger)">${brl(work)}</b></div><div class="card"><div class="mu">Lucro estimado</div><b style="color:${profit<0?'var(--danger)':'var(--success)'}">${brl(profit)}</b></div>
- <div class="card"><div class="mu">Entregas no mês</div><b>${month.n}</b></div><div class="card"><div class="mu">Ganho por hora</div><b>${month.hr?brl(month.hr):'—'}</b></div></div>
- ${prof?.monthly_goal_cents?`<div class="card"><div class="row"><span class="mu">Meta do mês</span><span class="mu">${Math.min(100,Math.round(month.t*100/prof.monthly_goal_cents))}%</span></div><div style="background:var(--border);border-radius:8px;height:8px;margin:10px 0"><div style="width:${Math.min(100,Math.round(month.t*100/prof.monthly_goal_cents))}%;height:8px;border-radius:8px;background:var(--primary)"></div></div><div class="mu">${brl(month.t)} de ${brl(prof.monthly_goal_cents)}</div></div>`:''}
- ${all.length?'':'<div class="card"><b>Comece aqui</b><p class="mu">Registre seu primeiro ganho na aba Ganhos.</p></div>'}
- <h2>Divisão do mês (recomendada, base ${p.split_base==='net'?'lucro':'bruto'})</h2><div class="card">
- <div class="row"><span>Contas ${p.split_bills_pct}%</span><b>${r(p.split_bills_pct)}</b></div>
- <div class="row"><span>Pessoal ${p.split_personal_pct}%</span><b>${r(p.split_personal_pct)}</b></div>
- <div class="row"><span>Reserva ${p.split_reserve_pct}%</span><b>${r(p.split_reserve_pct)}</b></div>
- <p class="mu">Valores recomendados. Só vira dinheiro guardado quando você registra em Dinheiro.</p></div>`);
+ ${prof?.monthly_goal_cents?`<div class="card"><div class="row"><span class="mu">Meta do mês</span><span class="mu">${pg}%</span></div><div style="background:var(--border);border-radius:8px;height:8px;margin:10px 0"><div style="width:${pg}%;height:8px;border-radius:8px;background:var(--primary)"></div></div><div class="mu">${brl(month.t)} de ${brl(prof.monthly_goal_cents)}</div></div>`:''}
+ ${all.length?'':'<div class="card"><b>Comece aqui</b><p class="mu">Registre seu primeiro ganho na aba Ganhos.</p></div>'}`);
  $('#pf').onclick=()=>{tab='perfil';perfil()};document.querySelectorAll('[data-go]').forEach(c=>c.onclick=()=>{tab=c.dataset.go;scrollTo(0,0);render()})}
-
+const SRC={personal:'Pessoal',earnings:'Ganho do trabalho',bills:'Contas',reserve:'Reserva',cdb:'CDB'};
+const balOf=(dp,wd,ex)=>k=>sumC(dp.filter(x=>x.bucket===k))-sumC(wd.filter(x=>x.bucket===k))-sumC(ex.filter(x=>x.source===k));
 async function despesas(){
- editId=null;
- shell('<p class="mu">Carregando…</p>');const l=await rows('expenses',{by:'spent_at',sel:',categories(name)'});
- const w=sumC(l.filter(e=>e.kind==='work'&&inMonth(e.spent_at))),p=sumC(l.filter(e=>e.kind==='personal'&&inMonth(e.spent_at)));
- shell(`<h1>Despesas</h1><div class="grid"><div class="card"><div class="mu">Trabalho (mês)</div><b style="color:var(--danger)">${brl(w)}</b></div><div class="card"><div class="mu">Pessoais (mês)</div><b style="color:var(--danger)">${brl(p)}</b></div></div>
- <div class="card"><select id="kd"><option value="work">Do trabalho</option><option value="personal">Pessoal</option></select>
- <input id="ct" list="cts" placeholder="Categoria (Combustível, Recarga, Internet…)"><datalist id="cts">${['Combustível','Recarga elétrica','Alimentação','Manutenção','Pneus','Peças','Internet','Lazer','Compras'].map(x=>`<option value="${x}">`).join('')}</datalist>
- <input id="vl" inputmode="decimal" placeholder="Valor (R$)"><div class="msg" id="msg"></div><button id="add">Salvar despesa</button></div>
- ${l.length?'':'<div class="card"><p class="mu">Nenhuma despesa ainda. Registre combustível, recarga ou a comida do dia.</p></div>'}
- ${l.map(e=>`<div class="card row"><div><b>${brl(e.amount_cents)}</b><div class="mu">${esc(e.categories?.name||'Sem categoria')} · ${e.kind==='work'?'trabalho':'pessoal'} · ${new Date(e.spent_at).toLocaleDateString('pt-BR')}</div></div><div><button class="sm" data-ed="${e.id}" style="color:var(--text-2)">Editar</button> <button class="sm" data-id="${e.id}">Excluir</button></div></div>`).join('')}`);
- $('#add').onclick=async()=>{const v=toCents($('#vl').value),k=$('#kd').value;if(!v)return $('#msg').textContent='Informe o valor.';
-  const n=$('#ct').value.trim(),cid=n?await cat(n,k):null;
-  const row={kind:k,category_id:cid,amount_cents:v};const{error}=await(editId?sb.from('expenses').update(row).eq('id',editId):sb.from('expenses').insert(row));if(error)return $('#msg').textContent=error.message;toast('Salvo ✓');despesas()};
+ editId=null;shell('<p class="mu">Carregando…</p>');
+ const[l,dp,wd]=await Promise.all([rows('expenses',{by:'spent_at',sel:',categories(name)'}),rows('deposits',{by:'deposited_at'}),rows('withdrawals',{by:'withdrawn_at'})]);
+ const bal=balOf(dp,wd,l),w=sumC(l.filter(e=>e.kind==='work'&&inMonth(e.spent_at))),p=sumC(l.filter(e=>e.kind==='personal'&&inMonth(e.spent_at))),vis=showAll.d?l:l.slice(0,10);
+ shell(`<h1>Gastos</h1><div class="grid"><div class="card"><div class="mu">Pessoal disponível</div><b style="color:${bal('personal')<0?'var(--danger)':'var(--text)'}">${brl(bal('personal'))}</b></div>
+ <div class="card"><div class="mu">Gasto no mês</div><b style="color:var(--danger)">${brl(w+p)}</b><div class="mu">Trabalho ${brl(w)} · Pessoal ${brl(p)}</div></div></div>
+ <div class="card"><select id="kd"><option value="work">Gasto do trabalho</option><option value="personal">Gasto pessoal</option></select>
+ <input id="ct" list="cts" placeholder="Categoria (Combustível, Recarga, Comida…)"><datalist id="cts">${['Combustível','Recarga elétrica','Alimentação','Manutenção','Pneus','Peças','Internet','Lazer','Compras'].map(x=>`<option value="${x}">`).join('')}</datalist>
+ <input id="vl" inputmode="decimal" placeholder="Valor (R$)"><select id="sr">${Object.entries(SRC).map(([k,v])=>`<option value="${k}">Descontar de: ${v}</option>`).join('')}</select>
+ <div class="msg" id="msg"></div><button id="add">Salvar gasto</button></div>
+ ${l.length?'':'<div class="card"><p class="mu">Nenhum gasto ainda. Registre combustível, recarga ou a comida do dia.</p></div>'}
+ ${vis.map(e=>`<div class="card row"><div><b style="color:var(--danger)">${brl(e.amount_cents)}</b><div class="mu">${esc(e.categories?.name||'Sem categoria')} · ${e.kind==='work'?'trabalho':'pessoal'} · ${new Date(e.spent_at).toLocaleDateString('pt-BR')}${e.source?' · '+SRC[e.source]:''}</div></div><div><button class="sm" data-ed="${e.id}" style="color:var(--text-2)">Editar</button> <button class="sm" data-id="${e.id}">Excluir</button></div></div>`).join('')}
+ ${l.length>10&&!showAll.d?'<button class="ghost" id="vm">Ver mais gastos</button>':''}`);
+ const sync=()=>{$('#sr').value=$('#kd').value==='work'?'earnings':'personal'};sync();$('#kd').onchange=sync;
+ if($('#vm'))$('#vm').onclick=()=>{showAll.d=true;despesas()};
+ $('#add').onclick=async()=>{const v=toCents($('#vl').value),k=$('#kd').value,sr=$('#sr').value;if(!v)return $('#msg').textContent='Informe o valor.';
+  if(sr!=='earnings'&&bal(sr)<v&&!confirm('O saldo de '+SRC[sr]+' ('+brl(bal(sr))+') não cobre este gasto. Salvar mesmo assim?'))return;
+  const n=$('#ct').value.trim(),cid=n?await cat(n,k):null,row={kind:k,category_id:cid,amount_cents:v,source:sr};
+  const{error}=await(editId?sb.from('expenses').update(row).eq('id',editId):sb.from('expenses').insert(row));
+  if(error)return $('#msg').textContent=error.message;toast('Gasto salvo ✓');despesas()};
  bind('button.sm[data-id]',async id=>{if(confirm('Excluir?')){await sb.from('expenses').delete().eq('id',id);despesas()}});
- document.querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>{const e=l.find(x=>x.id===b.dataset.ed);editId=e.id;$('#kd').value=e.kind;$('#ct').value=e.categories?.name||'';$('#vl').value=(e.amount_cents/100).toFixed(2).replace('.',',');$('#add').textContent='Atualizar despesa';scrollTo(0,0)})}
-
+ document.querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>{const e=l.find(x=>x.id===b.dataset.ed);editId=e.id;$('#kd').value=e.kind;$('#ct').value=e.categories?.name||'';$('#vl').value=(e.amount_cents/100).toFixed(2).replace('.',',');$('#sr').value=e.source||(e.kind==='work'?'earnings':'personal');$('#add').textContent='Atualizar gasto';scrollTo(0,0)})}
 const billInfo=b=>{const t=new Date(),last=new Date(t.getFullYear(),t.getMonth()+1,0).getDate(),due=new Date(t.getFullYear(),t.getMonth(),Math.min(b.due_day,last));
  const days=Math.ceil((due-new Date(t.getFullYear(),t.getMonth(),t.getDate()))/864e5);
  const st=b.paid_cents>=b.amount_cents?'paid':days<0?'late':b.paid_cents>0?'partial':'pending';
@@ -196,15 +205,16 @@ async function contas(){
  ${l.length?'':'<div class="card"><p class="mu">Nenhuma conta fixa ainda. Cadastre a parcela da moto, a internet…</p></div>'}
  ${l.map(b=>{const i=billInfo(b),A=b.amount_cents,pd=Math.min(b.paid_cents,A),rs=Math.min(b.reserved_cents,Math.max(A-pd,0)),pp=Math.round(pd*100/A),rp=Math.min(Math.round(rs*100/A),100-pp),fal=Math.max(A-b.reserved_cents-b.paid_cents,0);
  const due=i.st==='paid'?'Dia '+b.due_day:i.days<0?'Venceu dia '+b.due_day+' · há '+(-i.days)+(i.days===-1?' dia':' dias'):i.days===0?'Vence hoje':'Vence dia '+b.due_day+' · em '+i.days+(i.days===1?' dia':' dias');
- return`<div class="card"><div class="row"><b>${esc(b.name)}</b><span style="color:${i.cl};font-size:13px;font-weight:600">${i.lbl}</span></div>
+ return`<div class="card" data-tg="1" style="cursor:pointer"><div class="row"><b>${esc(b.name)}</b><span style="color:${i.cl};font-size:13px;font-weight:600">${i.lbl} <span class="mu">▾</span></span></div>
  <div class="mu">${due}</div>
  <div style="display:flex;height:8px;border-radius:8px;overflow:hidden;background:var(--border);margin:12px 0 8px"><div style="width:${pp}%;background:var(--success)"></div><div style="width:${rp}%;background:var(--primary)"></div></div>
  <div class="row"><span class="mu">${i.st==='paid'?'Pago '+brl(A):brl(b.reserved_cents+b.paid_cents)+' de '+brl(A)}</span><span class="mu" style="color:var(--text)">${i.st==='paid'?'100%':fal?'Faltam '+brl(fal):'Completo'}</span></div>
  ${pd>0&&rs>0?`<div class="mu" style="font-size:12px;margin-top:6px"><span style="color:var(--success)">●</span> Pago ${brl(pd)} &nbsp; <span style="color:var(--primary)">●</span> Reservado ${brl(rs)}</div>`:''}
- <div class="grid" style="margin-top:14px"><button class="ghost" data-a="r" data-id="${b.id}">Reservar</button><button data-a="p" data-id="${b.id}">Pagar</button></div>
- <div class="row" style="margin-top:12px"><button class="sm" data-a="n" data-id="${b.id}" style="color:var(--text-2)">Novo mês</button><button class="sm" data-a="d" data-id="${b.id}">Excluir</button></div></div>`}).join('')}`);
+ <div class="acts" style="display:none"><div class="grid" style="margin-top:14px"><button class="ghost" data-a="r" data-id="${b.id}">Reservar</button><button data-a="p" data-id="${b.id}">Pagar</button></div>
+ <div class="row" style="margin-top:12px"><button class="sm" data-a="n" data-id="${b.id}" style="color:var(--text-2)">Novo mês</button><button class="sm" data-a="d" data-id="${b.id}">Excluir</button></div></div></div>`}).join('')}`);
  $('#add').onclick=async()=>{const v=toCents($('#vl').value),d=parseInt($('#dd').value);if(!$('#nm').value||!v||!(d>=1&&d<=31))return $('#msg').textContent='Preencha nome, valor e dia (1 a 31).';
   const{error}=await sb.from('fixed_bills').insert({name:$('#nm').value.trim(),amount_cents:v,due_day:d});if(error)return $('#msg').textContent=error.message;toast('Salvo ✓');contas()};
+ document.querySelectorAll('.card[data-tg]').forEach(c=>c.onclick=e=>{if(e.target.closest('button'))return;const a=c.querySelector('.acts');a.style.display=a.style.display==='none'?'block':'none'});
  document.querySelectorAll('button[data-a]').forEach(b=>b.onclick=async()=>{const id=b.dataset.id,a=b.dataset.a,x=l.find(z=>z.id===id);
   if(a==='d'){if(!confirm('Excluir conta?'))return;await sb.from('fixed_bills').delete().eq('id',id)}
   else if(a==='n'){if(!confirm('Zerar reservado e pago deste mês?'))return;await sb.from('fixed_bills').update({reserved_cents:0,paid_cents:0,status:'pending'}).eq('id',id)}
@@ -219,28 +229,28 @@ async function dinheiro(){
  const[dp,wd,all,ex,{data:p}]=await Promise.all([rows('deposits',{by:'deposited_at'}),rows('withdrawals',{by:'withdrawn_at'}),loadEarnings(),rows('expenses',{by:'spent_at'}),sb.from('profiles').select('*').single()]);
  const gm=sum(all.filter(e=>inMonth(e.earned_at))).t,wm=sumC(ex.filter(e=>e.kind==='work'&&inMonth(e.spent_at)));
  const base=p?.split_base==='net'?Math.max(gm-wm,0):gm,pc={b:+(p?.split_bills_pct??50),p:+(p?.split_personal_pct??30),r:+(p?.split_reserve_pct??20)};
- const bal=k=>sumC(dp.filter(x=>x.bucket===k))-sumC(wd.filter(x=>x.bucket===k)),dm=k=>sumC(dp.filter(x=>x.bucket===k&&inMonth(x.deposited_at)));
+ const bal=balOf(dp,wd,ex),dm=k=>sumC(dp.filter(x=>x.bucket===k&&inMonth(x.deposited_at)));
  const m=c=>(c/100).toFixed(2).replace('.',','),rec=pc2=>Math.round(base*pc2/100);
  let useCdb=true;try{useCdb=localStorage.getItem('rodda_cdb')!=='0'}catch(e){}
  // histórico agrupado: um depósito automático vira um único cartão com a divisão
  const G={};[...dp.map(x=>({...x,t:'Depósito',tb:'deposits',d:x.deposited_at})),...wd.map(x=>({...x,t:'Retirada',tb:'withdrawals',d:x.withdrawn_at}))].forEach(x=>{
   const k=x.tb+'|'+String(x.d).slice(0,19);const g=G[k]=G[k]||{t:x.t,tb:x.tb,d:x.d,ids:[],parts:{},total:0};g.ids.push(x.id);g.parts[x.bucket]=(g.parts[x.bucket]||0)+x.amount_cents;g.total+=x.amount_cents});
- const hist=Object.values(G).sort((a,b)=>new Date(b.d)-new Date(a.d)).slice(0,30);
- shell(`<h1>Dinheiro</h1><h2>Saldo guardado (o que você registrou)</h2><div class="grid">${Object.keys(BK).map(k=>`<div class="card"><div class="mu">${BK[k]}</div><b>${brl(bal(k))}</b></div>`).join('')}</div>
- <h2>Neste mês: recomendado × depositado</h2><div class="card">
- <div class="row"><span>Contas / CDB</span><span class="mu">${brl(rec(pc.b))} rec. · <b style="color:var(--text)">${brl(dm('bills')+dm('cdb'))}</b> dep.</span></div>
- <div class="row"><span>Pessoal</span><span class="mu">${brl(rec(pc.p))} rec. · <b style="color:var(--text)">${brl(dm('personal'))}</b> dep.</span></div>
- <div class="row"><span>Reserva</span><span class="mu">${brl(rec(pc.r))} rec. · <b style="color:var(--text)">${brl(dm('reserve'))}</b> dep.</span></div></div>
- <h2>Registrar</h2><div class="card"><select id="tp"><option value="deposits">Depósito (guardei)</option><option value="withdrawals">Retirada (tirei)</option></select>
+ const hist=Object.values(G).sort((a,b)=>new Date(b.d)-new Date(a.d)),vis=showAll.m?hist:hist.slice(0,5);
+ shell(`<h1>Dinheiro</h1><div class="card"><div class="mu">Neste mês: guardado × recomendado</div><br>
+ ${[['Contas / CDB',dm('bills')+dm('cdb'),rec(pc.b)],['Pessoal',dm('personal'),rec(pc.p)],['Reserva',dm('reserve'),rec(pc.r)]].map(([n,dep,rc])=>`<div style="margin-bottom:12px"><div class="row"><span>${n}</span><span class="mu"><b style="color:var(--text)">${brl(dep)}</b> de ${brl(rc)}</span></div><div style="background:var(--border);border-radius:8px;height:6px;margin-top:6px"><div style="width:${rc?Math.min(100,Math.round(dep*100/rc)):0}%;height:6px;border-radius:8px;background:var(--success)"></div></div></div>`).join('')}
+ <div class="mu" style="border-top:1px solid var(--border);padding-top:10px">Saldo: ${Object.keys(BK).map(k=>`${BK[k]} <b style="color:${bal(k)<0?'var(--danger)':'var(--text)'}">${brl(bal(k))}</b>`).join(' · ')}</div></div>
+ <button id="tg" class="ghost">+ Registrar depósito ou retirada</button><div id="fm" style="display:none;margin-top:12px"><div class="card"><select id="tp"><option value="deposits">Depósito (guardei)</option><option value="withdrawals">Retirada (tirei)</option></select>
  <select id="md"><option value="auto">Automático (${pc.b}/${pc.p}/${pc.r})</option><option value="man">Manual (eu escolho)</option></select>
  <select id="bk">${Object.keys(BK).map(k=>`<option value="${k}">${BK[k]}</option>`).join('')}</select>
  <input id="vl" inputmode="decimal" placeholder="Valor total (R$)">
  <label class="mu" id="cw" style="display:block;margin-bottom:10px"><input type="checkbox" id="cdb" ${useCdb?'checked':''} style="margin-right:8px">Guardar a parte das Contas no CDB</label>
  <div id="pv">${Object.keys(BK).map(k=>`<div class="row" style="margin-bottom:8px"><span class="mu" style="flex:1">${BK[k]}</span><input data-b="${k}" inputmode="decimal" placeholder="0,00" style="width:130px;margin:0;text-align:right"></div>`).join('')}<div class="row" style="margin-bottom:10px"><span class="mu">Total</span><b id="tt">R$ 0,00</b></div></div>
- <div class="msg" id="msg"></div><button id="add">Registrar</button></div>
+ <div class="msg" id="msg"></div><button id="add">Registrar</button></div></div>
  ${hist.length?'':'<div class="card"><p class="mu">Nenhum depósito ainda. Digite o valor que você guardou e o app divide para você.</p></div>'}
- ${hist.map(g=>`<div class="card"><div class="row"><div><b style="color:${g.t==='Retirada'?'var(--danger)':'var(--success)'}">${g.t==='Retirada'?'−':'+'}${brl(g.total)}</b><div class="mu">${g.t} · ${new Date(g.d).toLocaleDateString('pt-BR')}</div></div><button class="sm" data-ids="${g.ids.join(',')}" data-tb="${g.tb}">Excluir</button></div>
- <div class="mu" style="margin-top:8px">${Object.entries(g.parts).map(([k,v])=>BK[k]+' '+brl(v)).join(' · ')}</div></div>`).join('')}`);
+ ${vis.map(g=>`<div class="card"><div class="row"><div><b style="color:${g.t==='Retirada'?'var(--danger)':'var(--success)'}">${g.t==='Retirada'?'−':'+'}${brl(g.total)}</b><div class="mu">${g.t} · ${new Date(g.d).toLocaleDateString('pt-BR')}</div></div><button class="sm" data-ids="${g.ids.join(',')}" data-tb="${g.tb}">Excluir</button></div>
+ <div class="mu" style="margin-top:8px">${Object.entries(g.parts).map(([k,v])=>BK[k]+' '+brl(v)).join(' · ')}</div></div>`).join('')}
+ ${hist.length>5&&!showAll.m?'<button class="ghost" id="vm">Ver mais</button>':''}`);
+ $('#tg').onclick=()=>{const f=$('#fm');f.style.display=f.style.display==='none'?'block':'none'};if($('#vm'))$('#vm').onclick=()=>{showAll.m=true;dinheiro()};
  const inputs=()=>[...document.querySelectorAll('#pv input')];
  const upd=()=>{const dep=$('#tp').value==='deposits',auto=$('#md').value==='auto';
   $('#md').style.display=dep?'':'none';$('#bk').style.display=dep?'none':'';$('#pv').style.display=dep?'':'none';$('#cw').style.display=dep&&auto?'block':'none';$('#vl').style.display=dep&&!auto?'none':'';
@@ -275,7 +285,7 @@ async function metas(){
   const v=toCents(prompt('Quanto adicionar? (R$)')||'0');if(v){await sb.from('goals').update({saved_cents:g.saved_cents+v}).eq('id',g.id);metas()}})}
 let vid=null;const VT={bike:'Bicicleta',ebike:'Bicicleta elétrica',emoto:'Moto elétrica',moto:'Moto a combustão',scooter:'Patinete elétrico',other:'Outro'};
 const ELE=['ebike','emoto','scooter'],r3=c=>'R$ '+(c/100).toFixed(3).replace('.',','),n1=x=>x.toFixed(1).replace('.',',');
-function mais(){shell(`<h1>Mais</h1>${[['contas','Contas fixas','Vencimentos e quanto falta juntar'],['metas','Metas','Quanto falta e quanto ganhar por dia'],['veiculos','Veículos','Recargas, combustível e manutenção'],['desempenho','Desempenho','Ganhos por hora, por app e por dia'],['relatorios','Relatórios','Gráficos e comparação entre meses'],['perfil','Perfil','Conta, divisão, dados e sair']].map(([k,t,d])=>`<div class="card row" data-go="${k}"><div><b>${t}</b><div class="mu">${d}</div></div><span class="mu">›</span></div>`).join('')}`);
+function mais(){shell(`<h1>Mais</h1>${[['contas','Contas fixas','Vencimentos e quanto falta juntar'],['metas','Metas','Quanto falta e quanto ganhar por dia'],['veiculos','Veículos','Recargas, combustível e manutenção'],['desempenho','Análises','Desempenho e relatórios'],['perfil','Perfil','Conta, divisão, dados e sair']].map(([k,t,d])=>`<div class="card row" data-go="${k}"><div><b>${t}</b><div class="mu">${d}</div></div><span class="mu">›</span></div>`).join('')}`);
  document.querySelectorAll('[data-go]').forEach(c=>c.onclick=()=>{tab=c.dataset.go;scrollTo(0,0);render()})}
 
 async function veiculos(){
@@ -327,14 +337,14 @@ const N_=s=>parseFloat(String(s||'').replace(',','.'));
 async function desempenho(){
  shell('<p class="mu">Carregando…</p>');
  const l=(await loadEarnings()).filter(e=>new Date(e.earned_at)>=new Date(Date.now()-30*864e5));
- if(!l.length)return shell('<h1>Desempenho</h1><div class="card"><b>Sem dados ainda</b><p class="mu">Registre ganhos (com entregas e minutos) para ver sua análise. Nada aqui é inventado: tudo vem dos seus registros.</p></div>');
+ if(!l.length)return shell(SEG('desempenho')+'<div class="card"><b>Sem dados ainda</b><p class="mu">Registre ganhos (com entregas e minutos) para ver sua análise. Nada aqui é inventado: tudo vem dos seus registros.</p></div>');
  const days=new Set(l.map(e=>new Date(e.earned_at).toLocaleDateString('pt-BR'))),S=sum(l);
  const wd={};l.forEach(e=>{const d=new Date(e.earned_at),k=d.getDay(),ds=d.toLocaleDateString('pt-BR');(wd[k]=wd[k]||{})[ds]=(wd[k][ds]||0)+total(e)});
  const nm=['domingo','segunda','terça','quarta','quinta','sexta','sábado'],avg=Object.entries(wd).map(([k,o])=>[k,Object.values(o).reduce((a,b)=>a+b,0)/Object.keys(o).length]).sort((a,b)=>b[1]-a[1]);
  const pf={};l.forEach(e=>{const k=e.platforms?.name||'Sem app';(pf[k]=pf[k]||[]).push(e)});
  const P=Object.entries(pf).map(([k,x])=>{const s=sum(x),kk=x.filter(e=>e.km>0);return{k,...s,pk:kk.length?sumC(kk.map(e=>({v:total(e)})),'v')/sumC(kk,'km'):0}}).sort((a,b)=>b.t-a.t);
  const best=[...P].filter(p=>p.hr).sort((a,b)=>b.hr-a.hr)[0];
- shell(`<h1>Desempenho</h1><p class="mu">Últimos 30 dias, com base nos seus registros.</p>
+ shell(`${SEG('desempenho')}<p class="mu">Últimos 30 dias, com base nos seus registros.</p>
  <div class="grid"><div class="card"><div class="mu">Dias trabalhados</div><b>${days.size}</b></div><div class="card"><div class="mu">Entregas/dia</div><b>${n1(S.n/days.size)}</b></div>
  <div class="card"><div class="mu">Média por entrega</div><b>${S.n?brl(S.avg):'—'}</b></div><div class="card"><div class="mu">Ganho por hora</div><b>${S.hr?brl(S.hr):'—'}</b></div>
  <div class="card"><div class="mu">Horas trabalhadas</div><b>${n1(S.mm/60)}</b></div><div class="card"><div class="mu">Melhor dia</div><b>${nm[avg[0][0]]}</b></div></div>
@@ -361,7 +371,7 @@ async function relatorios(){
  for(let i=6;i>=0;i--){const a=new Date(now.getFullYear(),now.getMonth(),now.getDate()-i),b=new Date(+a+864e5);D.push({l:a.toLocaleDateString('pt-BR',{weekday:'short'}).replace('.',''),g:sum(all.filter(x=>inR(x.earned_at,a,b))).t})}
  const bars=(arr,k)=>{const mx=Math.max(1,...arr.map(a=>a[k]));return`<div style="display:flex;gap:6px;align-items:flex-end;height:130px">${arr.map(a=>`<div style="flex:1;text-align:center"><div class="mu" style="font-size:10px">${a[k]?Math.round(a[k]/100):''}</div><div style="background:var(--success);border-radius:6px 6px 0 0;height:${Math.round(a[k]/mx*90)}px;min-height:2px"></div><div class="mu" style="font-size:11px">${a.l}</div></div>`).join('')}</div>`};
  const c=M[5],p=M[4],dl=p.g?Math.round((c.g-p.g)*100/p.g):null;
- shell(`<h1>Relatórios</h1><h2>Ganhos dos últimos 7 dias (R$)</h2><div class="card">${bars(D,'g')}</div>
+ shell(`${SEG('relatorios')}<h2>Ganhos dos últimos 7 dias (R$)</h2><div class="card">${bars(D,'g')}</div>
  <h2>Ganhos por mês (R$)</h2><div class="card">${bars(M,'g')}</div>
  <h2>Este mês × mês anterior</h2><div class="card"><div class="row"><span>Ganhos</span><b>${brl(c.g)}</b></div><div class="mu">${dl===null?'Sem dados do mês anterior':(dl>=0?'+':'')+dl+'% em relação a '+brl(p.g)}</div></div>
  <h2>Resumo mensal</h2>${M.slice().reverse().map(m=>`<div class="card"><div class="row"><b>${m.l}</b><b style="color:${m.p<0?'var(--danger)':'var(--success)'}">${brl(m.p)}</b></div><div class="mu">Ganhos ${brl(m.g)} · Gastos do trabalho ${brl(m.w)}</div></div>`).join('')}<p class="mu">Lucro = ganhos − despesas do trabalho. Valores calculados dos seus registros.</p>`)}
@@ -369,10 +379,10 @@ async function relatorios(){
 async function perfil(){
  shell('<p class="mu">Carregando…</p>');const{data:p}=await sb.from('profiles').select('*').single(),v=c=>c?(c/100).toFixed(2).replace('.',','):'';
  shell(`<h1>Perfil</h1><div class="card"><div class="mu">Conta</div><b>${esc(user.email)}</b><br><br><input id="nm" placeholder="Seu nome" value="${esc(p?.full_name||'')}"><input id="mg" inputmode="decimal" placeholder="Meta mensal de ganhos (R$)" value="${v(p?.monthly_goal_cents)}"><div class="msg" id="m1"></div><button class="ghost" id="sd">Salvar dados</button></div>
- <h2>Divisão dos ganhos (%)</h2><div class="card"><div style="display:flex;gap:8px"><input id="s1" inputmode="numeric" value="${p?.split_bills_pct}" title="Contas"><input id="s2" inputmode="numeric" value="${p?.split_personal_pct}" title="Pessoal"><input id="s3" inputmode="numeric" value="${p?.split_reserve_pct}" title="Reserva"></div>
- <div class="mu" style="margin-bottom:8px">Contas · Pessoal · Reserva (soma 100)</div><select id="sb"><option value="gross" ${p?.split_base==='gross'?'selected':''}>Calcular sobre ganhos brutos</option><option value="net" ${p?.split_base==='net'?'selected':''}>Calcular sobre o lucro (após despesas do trabalho)</option></select><div class="msg" id="m2"></div><button class="ghost" id="ss">Salvar divisão</button></div>
- <h2>Seus dados</h2><div class="card"><div class="msg" id="m3"></div><button class="ghost" id="ex">Exportar ganhos e despesas (CSV)</button><br><br><div class="row"><a id="tm" style="color:var(--primary)">Termos de uso</a><a id="pv" style="color:var(--primary)">Privacidade</a></div></div>
- <button class="ghost" id="out">Sair</button><br><br><button class="ghost" id="del" style="color:var(--danger)">Excluir minha conta e meus dados</button>`);
+ <details class="sec"><summary>Divisão dos ganhos</summary><div class="card"><div style="display:flex;gap:8px"><input id="s1" inputmode="numeric" value="${p?.split_bills_pct}" title="Contas"><input id="s2" inputmode="numeric" value="${p?.split_personal_pct}" title="Pessoal"><input id="s3" inputmode="numeric" value="${p?.split_reserve_pct}" title="Reserva"></div>
+ <div class="mu" style="margin-bottom:8px">Contas · Pessoal · Reserva (soma 100)</div><select id="sb"><option value="gross" ${p?.split_base==='gross'?'selected':''}>Calcular sobre ganhos brutos</option><option value="net" ${p?.split_base==='net'?'selected':''}>Calcular sobre o lucro (após despesas do trabalho)</option></select><div class="msg" id="m2"></div><button class="ghost" id="ss">Salvar divisão</button></div></details>
+ <details class="sec"><summary>Dados e privacidade</summary><div class="card"><div class="msg" id="m3"></div><button class="ghost" id="ex">Exportar ganhos e despesas (CSV)</button><br><br><div class="row"><a id="tm" style="color:var(--primary)">Termos de uso</a><a id="pv" style="color:var(--primary)">Privacidade</a></div><br><button class="ghost" id="del" style="color:var(--danger)">Excluir minha conta e meus dados</button></div></details>
+ <button class="ghost" id="out">Sair</button>`);
  $('#sd').onclick=async()=>{const{error}=await sb.from('profiles').update({full_name:$('#nm').value.trim()||null,monthly_goal_cents:toCents($('#mg').value)||null}).eq('id',user.id);$('#m1').innerHTML=error?esc(error.message):'<span class="ok">Salvo.</span>'};
  $('#ss').onclick=async()=>{const a=+$('#s1').value,b=+$('#s2').value,c=+$('#s3').value;if([a,b,c].some(x=>!(x>=0))||a+b+c!==100)return $('#m2').textContent='Os três valores devem somar 100.';
   const{error}=await sb.from('profiles').update({split_bills_pct:a,split_personal_pct:b,split_reserve_pct:c,split_base:$('#sb').value}).eq('id',user.id);$('#m2').innerHTML=error?esc(error.message):'<span class="ok">Salvo.</span>'};
