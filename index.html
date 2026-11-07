@@ -52,7 +52,7 @@ function authView(msg=''){
   if(!user)return $('#msg').textContent='Conta criada. Confirme seu e-mail e entre.';render()};
 }
 
-function shell(html){app.innerHTML=html+'<nav>'+TABS.map(([k,l])=>`<a data-t="${k}" class="${tab===k?'on':''}">${l}</a>`).join('')+'</nav>';
+function shell(html){app.innerHTML=html+'<nav>'+TABS.map(([k,l])=>`<a data-t="${k}" class="${tab===k||(k==='mais'&&['metas','veiculos','veiculo','desempenho','perfil'].includes(tab))?'on':''}">${l}</a>`).join('')+'</nav>';
  document.querySelectorAll('nav a').forEach(a=>a.onclick=()=>{tab=a.dataset.t;render()})}
 
 const total=e=>e.amount_cents+e.tips_cents+(e.bonus_confirmed?e.bonus_cents:0);
@@ -65,7 +65,7 @@ async function loadEarnings(){const{data,error}=await sb.from('earnings').select
 
 async function render(){
  if(!user)return authView();
- return({inicio,ganhos,despesas,contas,dinheiro,metas,perfil}[tab]||inicio)()}
+ return({inicio,ganhos,despesas,contas,dinheiro,mais,metas,veiculos,veiculo,desempenho,perfil}[tab]||inicio)()}
 
 async function ganhos(){
  shell('<p class="mu">Carregando…</p>');
@@ -82,16 +82,12 @@ async function ganhos(){
  $('#add').onclick=async()=>{const v=toCents($('#val').value);if(!v)return $('#msg').textContent='Informe o valor recebido.';
   let pid=null;const nm=$('#app_').value.trim();
   if(nm){let{data:ex}=await sb.from('platforms').select('id').ilike('name',nm).maybeSingle();
-   if(!ex){const r=await sb.from('platforms').insert({name:nm}).select('id').single();if(r.error)return $('#msg').textContent=r.error.message.includes('FREE')?'Limite do plano FREE: 3 aplicativos.':r.error.message;ex=r.data}pid=ex.id}
+   if(!ex){const r=await sb.from('platforms').insert({name:nm}).select('id').single();if(r.error)return $('#msg').textContent=r.error.message.includes('FREE')?r.error.message:r.error.message;ex=r.data}pid=ex.id}
   const{error}=await sb.from('earnings').insert({platform_id:pid,amount_cents:v,bonus_cents:toCents($('#bon').value),tips_cents:toCents($('#tip').value),deliveries:parseInt($('#ent').value)||0,minutes_worked:parseInt($('#min').value)||null,bonus_confirmed:$('#bc').checked});
   if(error)return $('#msg').textContent=error.message;ganhos()};
  document.querySelectorAll('button.sm').forEach(b=>b.onclick=async()=>{if(confirm('Excluir este ganho?')){await sb.from('earnings').delete().eq('id',b.dataset.id);ganhos()}})}
 
-async function perfil(){
- const{data:s}=await sb.from('subscriptions').select('plan_id,status').maybeSingle();
- shell(`<h1>Perfil</h1><div class="card"><div class="mu">Conta</div><b>${esc(user.email)}</b><br><br><div class="mu">Plano</div><b>${s?.plan_id==='pro'?'RODDA PRO':'RODDA FREE'}</b><p class="mu">PRO: preço a definir.</p></div><button class="ghost" id="out">Sair</button>`);
- $('#out').onclick=async()=>{await sb.auth.signOut();user=null;render()}}
-const TABS=[['inicio','Início'],['ganhos','Ganhos'],['despesas','Despesas'],['contas','Contas'],['dinheiro','Dinheiro'],['metas','Metas']];
+const TABS=[['inicio','Início'],['ganhos','Ganhos'],['despesas','Despesas'],['contas','Contas'],['dinheiro','Dinheiro'],['mais','Mais']];
 const mStart=()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(),1)};
 const inMonth=(d)=>new Date(d)>=mStart();
 async function cat(name,kind){let{data:ex}=await sb.from('categories').select('id').ilike('name',name).eq('kind',kind).maybeSingle();
@@ -188,9 +184,85 @@ async function metas(){
  <div class="grid"><button data-a="a" data-id="${g.id}">Adicionar valor</button><button class="sm" data-a="d" data-id="${g.id}" style="padding:13px">Excluir</button></div></div>`}).join('')}`);
  $('#add').onclick=async()=>{const v=toCents($('#vl').value);if(!$('#tt').value||!v)return $('#msg').textContent='Informe título e valor.';
   const{error}=await sb.from('goals').insert({title:$('#tt').value.trim(),target_cents:v,deadline:$('#dl').value||null});
-  if(error)return $('#msg').textContent=error.message.includes('FREE')?'Limite do plano FREE: 2 metas.':error.message;metas()};
+  if(error)return $('#msg').textContent=error.message.includes('FREE')?error.message:error.message;metas()};
  document.querySelectorAll('button[data-a]').forEach(b=>b.onclick=async()=>{const g=l.find(z=>z.id===b.dataset.id);
   if(b.dataset.a==='d'){if(confirm('Excluir meta?')){await sb.from('goals').delete().eq('id',g.id);metas()}return}
   const v=toCents(prompt('Quanto adicionar? (R$)')||'0');if(v){await sb.from('goals').update({saved_cents:g.saved_cents+v}).eq('id',g.id);metas()}})}
+let vid=null;const VT={bike:'Bicicleta',ebike:'Bicicleta elétrica',emoto:'Moto elétrica',moto:'Moto a combustão',scooter:'Patinete elétrico',other:'Outro'};
+const ELE=['ebike','emoto','scooter'],r3=c=>'R$ '+(c/100).toFixed(3).replace('.',','),n1=x=>x.toFixed(1).replace('.',',');
+function mais(){shell(`<h1>Mais</h1>${[['metas','Metas','Quanto falta e quanto ganhar por dia'],['veiculos','Veículos','Recargas, combustível e manutenção'],['desempenho','Desempenho','Ganhos por hora, por app e por dia'],['perfil','Perfil','Conta, exportar dados e sair']].map(([k,t,d])=>`<div class="card row" data-go="${k}"><div><b>${t}</b><div class="mu">${d}</div></div><span class="mu">›</span></div>`).join('')}`);
+ document.querySelectorAll('[data-go]').forEach(c=>c.onclick=()=>{tab=c.dataset.go;render()})}
+
+async function veiculos(){
+ shell('<p class="mu">Carregando…</p>');const l=await rows('vehicles');
+ shell(`<h1>Veículos</h1><div class="card"><input id="nm" placeholder="Nome (Minha bike, CG 160…)"><input id="md" placeholder="Modelo (opcional)">
+ <select id="tp">${Object.entries(VT).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
+ <div class="grid"><input id="km" inputmode="decimal" placeholder="Km atual"><input id="au" inputmode="decimal" placeholder="Autonomia (km)"></div>
+ <div class="msg" id="msg"></div><button id="add">Salvar veículo</button></div>
+ ${l.map(v=>`<div class="card row" data-id="${v.id}"><div><b>${esc(v.name)}</b><div class="mu">${VT[v.type]} · ${v.odometer_km||0} km</div></div><span class="mu">›</span></div>`).join('')}`);
+ $('#add').onclick=async()=>{if(!$('#nm').value)return $('#msg').textContent='Dê um nome ao veículo.';
+  const{error}=await sb.from('vehicles').insert({name:$('#nm').value.trim(),model:$('#md').value||null,type:$('#tp').value,odometer_km:parseFloat($('#km').value.replace(',','.'))||0,est_range_km:parseFloat($('#au').value.replace(',','.'))||null});
+  if(error)return $('#msg').textContent=error.message.includes('FREE')?error.message:error.message;veiculos()};
+ bind('.card[data-id]',id=>{vid=id;tab='veiculo';render()})}
+
+async function veiculo(){
+ shell('<p class="mu">Carregando…</p>');
+ const q=(t,c)=>sb.from(t).select('*').eq('vehicle_id',vid).order(c,{ascending:false}).limit(200).then(r=>r.data||[]);
+ const[{data:v},ch,fu,mt]=await Promise.all([sb.from('vehicles').select('*').eq('id',vid).single(),q('charges','charged_at'),q('fuelings','fueled_at'),q('maintenances','done_at')]);
+ if(!v){tab='veiculos';return render()}
+ const el=ELE.includes(v.type),gas=v.type==='moto';let st='';
+ if(el){const g=ch.filter(c=>c.km>0&&c.battery_end_pct>c.battery_start_pct),pc=g.reduce((s,c)=>s+c.battery_end_pct-c.battery_start_pct,0),km=sumC(g,'km'),co=sumC(g,'cost_cents'),kw=sumC(g.filter(c=>c.kwh>0),'kwh'),kk=sumC(g.filter(c=>c.kwh>0),'km');
+  st=g.length?`<div class="card"><div class="mu">Autonomia observada</div><b>${n1(km/(pc/100))} km por carga completa</b><br><div class="mu">Custo por km: ${r3(co/km)}${kw?' · Consumo: '+n1(kw/kk*100)+' kWh/100 km':''}</div></div>`:'<p class="mu">Registre recargas com km rodados para ver autonomia e custo por km.</p>'}
+ if(gas){const s=[...fu].filter(f=>f.odometer_km).sort((a,b)=>a.odometer_km-b.odometer_km);let km=0,li=0,co=0;for(let i=1;i<s.length;i++){km+=s[i].odometer_km-s[i-1].odometer_km;li+=s[i].liters;co+=s[i].cost_cents}
+  st=km>0?`<div class="card"><div class="mu">Consumo médio</div><b>${n1(km/li)} km/l</b><div class="mu">Custo por km: ${r3(co/km)}</div></div>`:'<p class="mu">Registre ao menos 2 abastecimentos com o km do painel para ver consumo e custo por km.</p>'}
+ const t0=new Date(Date.now()+7*864e5).toISOString().slice(0,10),alert=m=>(m.remind_at&&m.remind_at<=t0)||(m.remind_km&&(v.odometer_km||0)>=m.remind_km-100);
+ shell(`<div class="row"><h1>${esc(v.name)}</h1><button class="sm" id="bk" style="color:var(--ac)">‹ Voltar</button></div><p class="mu">${VT[v.type]} · ${v.odometer_km||0} km <a id="ok" style="color:var(--ac)">atualizar km</a></p>${st}
+ ${el?`<h2>Nova recarga</h2><div class="card"><div class="grid"><input id="b1" inputmode="numeric" placeholder="Bateria inicial %"><input id="b2" inputmode="numeric" placeholder="Bateria final %"></div>
+ <div class="grid"><input id="kmx" inputmode="decimal" placeholder="Km rodados desde a última"><input id="kwh" inputmode="decimal" placeholder="kWh (opcional)"></div><input id="cst" inputmode="decimal" placeholder="Custo da recarga (R$)"><div class="msg" id="m1"></div><button id="a1">Salvar recarga</button></div>`:''}
+ ${gas?`<h2>Novo abastecimento</h2><div class="card"><div class="grid"><input id="lt" inputmode="decimal" placeholder="Litros"><input id="cst" inputmode="decimal" placeholder="Valor (R$)"></div><input id="odo" inputmode="decimal" placeholder="Km do painel"><div class="msg" id="m1"></div><button id="a2">Salvar abastecimento</button></div>`:''}
+ <h2>Nova manutenção</h2><div class="card"><input id="mk" placeholder="Serviço (pneu, freio, revisão, bateria…)"><div class="grid"><input id="mc" inputmode="decimal" placeholder="Custo (R$)"><input id="md" type="date"></div>
+ <div class="grid"><input id="ra" type="date" title="Lembrar na data"><input id="rk" inputmode="numeric" placeholder="Lembrar no km"></div><p class="mu">Lembrete por data e/ou km (opcional).</p><div class="msg" id="m3"></div><button id="a3">Salvar manutenção</button></div>
+ <h2>Histórico</h2>${[...ch.map(c=>({t:'ch',id:c.id,x:`Recarga ${c.battery_start_pct}→${c.battery_end_pct}% · ${brl(c.cost_cents||0)}`,d:c.charged_at})),...fu.map(f=>({t:'fu',id:f.id,x:`Abastecimento ${f.liters} L · ${brl(f.cost_cents)}`,d:f.fueled_at})),...mt.map(m=>({t:'mt',id:m.id,x:`${esc(m.kind)} · ${brl(m.cost_cents||0)}${alert(m)?' · <b style="color:var(--er)">LEMBRETE</b>':''}`,d:m.done_at||''}))].map(h=>`<div class="card row"><div><b>${h.x}</b><div class="mu">${h.d?new Date(h.d+'T12:00').toLocaleDateString('pt-BR'):''}</div></div><button class="sm" data-t="${h.t}" data-id="${h.id}">Excluir</button></div>`).join('')}
+ <br><button class="ghost" id="dv" style="color:var(--er)">Excluir veículo</button>`);
+ const N=s=>parseFloat(String($(s).value).replace(',','.')),TB={ch:'charges',fu:'fuelings',mt:'maintenances'};
+ $('#bk').onclick=()=>{tab='veiculos';render()};
+ $('#ok').onclick=async()=>{const k=N_(prompt('Km atual do veículo?'));if(k>=0){await sb.from('vehicles').update({odometer_km:k}).eq('id',vid);veiculo()}};
+ const run=async(t,o,m)=>{const{error}=await sb.from(t).insert({vehicle_id:vid,...o});if(error)return $(m).textContent=error.message;veiculo()};
+ if($('#a1'))$('#a1').onclick=()=>{const a=N('#b1'),b=N('#b2');if(!(a>=0&&b>a&&b<=100))return $('#m1').textContent='Bateria final deve ser maior que a inicial (0 a 100%).';
+  run('charges',{battery_start_pct:a,battery_end_pct:b,km:N('#kmx')||null,kwh:N('#kwh')||null,cost_cents:toCents($('#cst').value)},'#m1')};
+ if($('#a2'))$('#a2').onclick=()=>{if(!(N('#lt')>0)||!toCents($('#cst').value))return $('#m1').textContent='Informe litros e valor.';
+  run('fuelings',{liters:N('#lt'),cost_cents:toCents($('#cst').value),odometer_km:N('#odo')||null},'#m1')};
+ $('#a3').onclick=()=>{if(!$('#mk').value)return $('#m3').textContent='Informe o serviço.';
+  run('maintenances',{kind:$('#mk').value.trim(),cost_cents:toCents($('#mc').value),done_at:$('#md').value||null,remind_at:$('#ra').value||null,remind_km:N('#rk')||null},'#m3')};
+ document.querySelectorAll('button.sm[data-t]').forEach(b=>b.onclick=async()=>{if(confirm('Excluir?')){await sb.from(TB[b.dataset.t]).delete().eq('id',b.dataset.id);veiculo()}});
+ $('#dv').onclick=async()=>{if(confirm('Excluir o veículo e todo o histórico dele?')){await sb.from('vehicles').delete().eq('id',vid);tab='veiculos';render()}}}
+const N_=s=>parseFloat(String(s||'').replace(',','.'));
+
+async function desempenho(){
+ shell('<p class="mu">Carregando…</p>');
+ const l=(await loadEarnings()).filter(e=>new Date(e.earned_at)>=new Date(Date.now()-30*864e5));
+ if(!l.length)return shell('<h1>Desempenho</h1><div class="card"><b>Sem dados ainda</b><p class="mu">Registre ganhos (com entregas e minutos) para ver sua análise. Nada aqui é inventado: tudo vem dos seus registros.</p></div>');
+ const days=new Set(l.map(e=>new Date(e.earned_at).toLocaleDateString('pt-BR'))),S=sum(l);
+ const wd={};l.forEach(e=>{const d=new Date(e.earned_at),k=d.getDay(),ds=d.toLocaleDateString('pt-BR');(wd[k]=wd[k]||{})[ds]=(wd[k][ds]||0)+total(e)});
+ const nm=['domingo','segunda','terça','quarta','quinta','sexta','sábado'],avg=Object.entries(wd).map(([k,o])=>[k,Object.values(o).reduce((a,b)=>a+b,0)/Object.keys(o).length]).sort((a,b)=>b[1]-a[1]);
+ const pf={};l.forEach(e=>{const k=e.platforms?.name||'Sem app';(pf[k]=pf[k]||[]).push(e)});
+ const P=Object.entries(pf).map(([k,x])=>{const s=sum(x),kk=x.filter(e=>e.km>0);return{k,...s,pk:kk.length?sumC(kk.map(e=>({v:total(e)})),'v')/sumC(kk,'km'):0}}).sort((a,b)=>b.t-a.t);
+ const best=[...P].filter(p=>p.hr).sort((a,b)=>b.hr-a.hr)[0];
+ shell(`<h1>Desempenho</h1><p class="mu">Últimos 30 dias, com base nos seus registros.</p>
+ <div class="grid"><div class="card"><div class="mu">Dias trabalhados</div><b>${days.size}</b></div><div class="card"><div class="mu">Entregas/dia</div><b>${n1(S.n/days.size)}</b></div>
+ <div class="card"><div class="mu">Média por entrega</div><b>${S.n?brl(S.avg):'—'}</b></div><div class="card"><div class="mu">Ganho por hora</div><b>${S.hr?brl(S.hr):'—'}</b></div>
+ <div class="card"><div class="mu">Horas trabalhadas</div><b>${n1(S.mm/60)}</b></div><div class="card"><div class="mu">Melhor dia</div><b>${nm[avg[0][0]]}</b></div></div>
+ ${best&&P.length>1?`<div class="card"><div class="mu">App com melhor ganho por hora</div><b>${esc(best.k)} · ${brl(best.hr)}/h</b></div>`:''}
+ <h2>Por aplicativo</h2>${P.map(p=>`<div class="card"><div class="row"><b>${esc(p.k)}</b><b>${brl(p.t)}</b></div><div class="mu">${p.n} entregas · média ${p.n?brl(p.avg):'—'} · ${p.hr?brl(p.hr)+'/h':'sem horas'}${p.pk?' · '+r3(p.pk)+'/km':''}</div></div>`).join('')}`)}
+function csv(rows){if(!rows.length)return '';const k=Object.keys(rows[0]);return [k.join(';'),...rows.map(r=>k.map(c=>'"'+String(r[c]??'').replace(/"/g,'""')+'"').join(';'))].join('\n')}
+function baixar(nome,txt){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+txt],{type:'text/csv'}));a.download=nome;document.body.appendChild(a);a.click();a.remove()}
+async function perfil(){
+ shell(`<h1>Perfil</h1><div class="card"><div class="mu">Conta</div><b>${esc(user.email)}</b></div>
+ <div class="card"><b>Seus dados</b><p class="mu">Baixe seus ganhos e despesas em planilha (CSV).</p><div class="msg" id="m2"></div><button class="ghost" id="ex">Exportar CSV</button></div>
+ <button class="ghost" id="out">Sair</button>`);
+ $('#ex').onclick=async()=>{$('#m2').textContent='';const{data,error}=await sb.rpc('export_my_data');if(error)return $('#m2').textContent=error.message;
+  baixar('rodda-ganhos.csv',csv(data.earnings));baixar('rodda-despesas.csv',csv(data.expenses))};
+ $('#out').onclick=async()=>{await sb.auth.signOut();user=null;render()}}
+
 boot();
 </script></body></html>
