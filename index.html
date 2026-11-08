@@ -168,7 +168,7 @@ async function inicio(){
  ${prof?.monthly_goal_cents?`<div class="card"><div class="row"><span class="mu">Meta do mês</span><span class="mu">${pg}%</span></div><div style="background:var(--border);border-radius:8px;height:8px;margin:10px 0"><div style="width:${pg}%;height:8px;border-radius:8px;background:var(--primary)"></div></div><div class="mu">${brl(month.t)} de ${brl(prof.monthly_goal_cents)}</div></div>`:''}
  ${all.length?'':'<div class="card"><b>Comece aqui</b><p class="mu">Registre seu primeiro ganho na aba Ganhos.</p></div>'}`);
  $('#pf').onclick=()=>{tab='perfil';perfil()};document.querySelectorAll('[data-go]').forEach(c=>c.onclick=()=>{tab=c.dataset.go;scrollTo(0,0);render()})}
-const SRC={personal:'Pessoal',earnings:'Ganho do trabalho',bills:'Contas',reserve:'Reserva',cdb:'CDB'};
+const SRC={personal:'Pessoal',earnings:'Ganho do trabalho',bills:'Contas fixas',reserve:'Reserva',cdb:'CDB'};
 const balOf=(dp,wd,ex)=>k=>sumC(dp.filter(x=>x.bucket===k))-sumC(wd.filter(x=>x.bucket===k))-sumC(ex.filter(x=>x.source===k));
 async function despesas(){
  editId=null;shell('<p class="mu">Carregando…</p>');
@@ -223,22 +223,23 @@ async function contas(){
    if(a==='p')u.status=(x.paid_cents+v>=x.amount_cents)?'paid':'partial';await sb.from('fixed_bills').update(u).eq('id',id)}
   contas()})}
 
-const BK={bills:'Contas',personal:'Pessoal',reserve:'Reserva',cdb:'CDB'};
+const BK={bills:'Contas fixas',personal:'Pessoal',reserve:'Reserva',cdb:'CDB'};
 async function dinheiro(){
  shell('<p class="mu">Carregando…</p>');
  const[dp,wd,all,ex,{data:p}]=await Promise.all([rows('deposits',{by:'deposited_at'}),rows('withdrawals',{by:'withdrawn_at'}),loadEarnings(),rows('expenses',{by:'spent_at'}),sb.from('profiles').select('*').single()]);
  const gm=sum(all.filter(e=>inMonth(e.earned_at))).t,wm=sumC(ex.filter(e=>e.kind==='work'&&inMonth(e.spent_at)));
  const base=p?.split_base==='net'?Math.max(gm-wm,0):gm,pc={b:+(p?.split_bills_pct??50),p:+(p?.split_personal_pct??30),r:+(p?.split_reserve_pct??20)};
- const bal=balOf(dp,wd,ex),dm=k=>sumC(dp.filter(x=>x.bucket===k&&inMonth(x.deposited_at)));
+ const bal=balOf(dp,wd,ex),sm=k=>sumC(ex.filter(e=>e.source===k&&inMonth(e.spent_at))),dm=k=>sumC(dp.filter(x=>x.bucket===k&&inMonth(x.deposited_at)));
  const m=c=>(c/100).toFixed(2).replace('.',','),rec=pc2=>Math.round(base*pc2/100);
  let useCdb=true;try{useCdb=localStorage.getItem('rodda_cdb')!=='0'}catch(e){}
  // histórico agrupado: um depósito automático vira um único cartão com a divisão
  const G={};[...dp.map(x=>({...x,t:'Depósito',tb:'deposits',d:x.deposited_at})),...wd.map(x=>({...x,t:'Retirada',tb:'withdrawals',d:x.withdrawn_at}))].forEach(x=>{
   const k=x.tb+'|'+String(x.d).slice(0,19);const g=G[k]=G[k]||{t:x.t,tb:x.tb,d:x.d,ids:[],parts:{},total:0};g.ids.push(x.id);g.parts[x.bucket]=(g.parts[x.bucket]||0)+x.amount_cents;g.total+=x.amount_cents});
  const hist=Object.values(G).sort((a,b)=>new Date(b.d)-new Date(a.d)),vis=showAll.m?hist:hist.slice(0,5);
- shell(`<h1>Dinheiro</h1><div class="card"><div class="mu">Neste mês: guardado × recomendado</div><br>
- ${[['Contas / CDB',dm('bills')+dm('cdb'),rec(pc.b)],['Pessoal',dm('personal'),rec(pc.p)],['Reserva',dm('reserve'),rec(pc.r)]].map(([n,dep,rc])=>`<div style="margin-bottom:12px"><div class="row"><span>${n}</span><span class="mu"><b style="color:var(--text)">${brl(dep)}</b> de ${brl(rc)}</span></div><div style="background:var(--border);border-radius:8px;height:6px;margin-top:6px"><div style="width:${rc?Math.min(100,Math.round(dep*100/rc)):0}%;height:6px;border-radius:8px;background:var(--success)"></div></div></div>`).join('')}
- <div class="mu" style="border-top:1px solid var(--border);padding-top:10px">Saldo: ${Object.keys(BK).map(k=>`${BK[k]} <b style="color:${bal(k)<0?'var(--danger)':'var(--text)'}">${brl(bal(k))}</b>`).join(' · ')}</div></div>
+ shell(`<h1>Dinheiro</h1><div class="card"><div class="mu">Saldo disponível</div><br>
+ ${[['Reservado para contas fixas',['bills','cdb'],rec(pc.b)],['Pessoal',['personal'],rec(pc.p)],['Reserva',['reserve'],rec(pc.r)]].map(([n,ks,rc])=>{const sd=ks.reduce((a,k)=>a+bal(k),0),dep=ks.reduce((a,k)=>a+dm(k),0),gs=ks.reduce((a,k)=>a+sm(k),0);
+  return`<div style="margin-bottom:14px"><div class="row"><span>${n}</span><b style="font-size:18px;color:${sd<0?'var(--danger)':'var(--text)'}">${brl(sd)}</b></div><div style="background:var(--border);border-radius:8px;height:6px;margin:8px 0 6px"><div style="width:${rc?Math.min(100,Math.round(dep*100/rc)):0}%;height:6px;border-radius:8px;background:var(--success)"></div></div>
+  <div class="mu" style="font-size:12px">Guardado no mês ${brl(dep)} de ${brl(rc)}${gs?' · Gastos −'+brl(gs):''}${ks.length>1?' · CDB '+brl(bal('cdb'))+' · Em conta '+brl(bal('bills')):''}</div></div>`}).join('')}</div>
  <button id="tg" class="ghost">+ Registrar depósito ou retirada</button><div id="fm" style="display:none;margin-top:12px"><div class="card"><select id="tp"><option value="deposits">Depósito (guardei)</option><option value="withdrawals">Retirada (tirei)</option></select>
  <select id="md"><option value="auto">Automático (${pc.b}/${pc.p}/${pc.r})</option><option value="man">Manual (eu escolho)</option></select>
  <select id="bk">${Object.keys(BK).map(k=>`<option value="${k}">${BK[k]}</option>`).join('')}</select>
@@ -301,27 +302,140 @@ async function veiculos(){
   if(error)return $('#msg').textContent=error.message.includes('FREE')?error.message:error.message;toast('Salvo ✓');veiculos()};
  bind('.card[data-id]',id=>{vid=id;tab='veiculo';render()})}
 
+// FUEL-CALC-START
+function fuelPrep(list){
+ const a=[...list].sort((x,y)=>String(x.fueled_at).localeCompare(String(y.fueled_at))||((x.odometer_km??1e12)-(y.odometer_km??1e12))||String(x.created_at||'').localeCompare(String(y.created_at||'')));
+ let prev=null;
+ return a.map(f=>{let odo=f.odometer_km!=null&&f.odometer_km!==''?+f.odometer_km:null;
+  if(odo==null&&+f.distance_km>0&&prev!=null)odo=prev+ +f.distance_km;
+  if(odo!=null)prev=odo;
+  return{...f,odo,full:f.full_tank!==false,liters:+f.liters,cost:+f.cost_cents}})}
+// Método dos tanques cheios consecutivos: só entra na conta o trecho entre dois tanques cheios
+// com km conhecido; os litros de abastecimentos parciais no meio do trecho são somados.
+function fuelSegments(list){
+ const a=fuelPrep(list),seg=[];let base=null,acc=[];
+ for(const f of a){
+  if(base!==null)acc.push(f);
+  if(f.full&&f.odo!=null){
+   if(base!==null){const dist=f.odo-base.odo,L=acc.reduce((s,x)=>s+x.liters,0),C=acc.reduce((s,x)=>s+x.cost,0);
+    if(dist>0&&L>0)seg.push({id:f.id,date:f.fueled_at,dist,liters:L,cost:C,kmL:dist/L,costKm:C/dist})}
+   base=f;acc=[]}}
+ return seg}
+function fuelStats(list,tankL,leftL){
+ const seg=fuelSegments(list),dist=seg.reduce((s,x)=>s+x.dist,0),L=seg.reduce((s,x)=>s+x.liters,0),C=seg.reduce((s,x)=>s+x.cost,0);
+ const kmL=L>0?dist/L:null,costKm=dist>0?C/dist:null;
+ const pr=list.filter(f=>+f.liters>0&&+f.cost_cents>0),pl=pr.reduce((s,f)=>s+ +f.liters,0),pc=pr.reduce((s,f)=>s+ +f.cost_cents,0);
+ return{seg,dist,liters:L,cost:C,kmL,costKm,last:seg.length?seg[seg.length-1].kmL:null,
+  range:kmL&&tankL>0?kmL*tankL:null,rangeLeft:kmL&&leftL>=0?kmL*leftL:null,avgPrice:pl>0?pc/pl:null}}
+function fuelSpendSeries(list,mode,n=6,now=new Date()){const out=[];
+ for(let i=n-1;i>=0;i--){let a,b,l;
+  if(mode==='month'){a=new Date(now.getFullYear(),now.getMonth()-i,1);b=new Date(a.getFullYear(),a.getMonth()+1,1);l=a.toLocaleDateString('pt-BR',{month:'short'}).replace('.','')}
+  else{b=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1-i*7);a=new Date(+b-7*864e5);l=a.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}
+  out.push({l,v:list.filter(f=>{const d=new Date(f.fueled_at+'T12:00:00');return d>=a&&d<b}).reduce((s,f)=>s+ +f.cost_cents,0)})}
+ return out}
+const fuelSpend=(list,now=new Date())=>({week:fuelSpendSeries(list,'week',1,now)[0].v,month:fuelSpendSeries(list,'month',1,now)[0].v});
+function fuelValidate(list,f,tank,editId){
+ const L=+f.liters,C=+f.cost_cents;
+ if(!f.fueled_at)return{error:'Informe a data.'};
+ if(!(L>0))return{error:'Informe os litros (maior que zero).'};
+ if(!(C>0))return{error:'Informe o valor pago (maior que zero).'};
+ if(f.odometer_km!=null&&!(f.odometer_km>=0))return{error:'O km do painel não pode ser negativo.'};
+ if(f.distance_km!=null&&!(f.distance_km>=0))return{error:'A distância não pode ser negativa.'};
+ const a=fuelPrep([...list.filter(x=>x.id!==editId),{...f,id:'__new'}]);let last=null;
+ for(const x of a){if(x.odo==null)continue;
+  if(last&&x.odo<last.odo&&(x.id==='__new'||last.id==='__new'))return{error:'O km informado ficou menor que o de um abastecimento anterior. Confira a data e o odômetro.'};
+  last=x}
+ const w=[];if(tank>0&&L>tank*1.05)w.push('Os '+L+' L passam da capacidade do tanque ('+tank+' L).');
+ const p=C/100/L;if(p<2||p>15)w.push('O preço por litro (R$ '+p.toFixed(2)+') parece fora do normal.');
+ return{warn:w.join(' ')||null}}
+// FUEL-CALC-END
+
+const fdt=d=>new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+function spark(vals,lbls,fmt){if(vals.length<2)return'<p class="mu">Registre mais abastecimentos para ver este gráfico.</p>';
+ const W=300,H=90,mn=Math.min(...vals),mx=Math.max(...vals),r=mx-mn||1,pt=vals.map((v,i)=>[10+i*(W-20)/(vals.length-1),H-10-(v-mn)/r*(H-24)]);
+ return`<svg viewBox="0 0 ${W} ${H+16}" width="100%" style="display:block"><polyline fill="none" stroke="var(--primary)" stroke-width="2" points="${pt.map(p=>p.join(',')).join(' ')}"/>${pt.map(p=>`<circle cx="${p[0]}" cy="${p[1]}" r="3" fill="var(--primary)"/>`).join('')}<text x="10" y="${H+12}" font-size="10" fill="var(--text-2)">${lbls[0]}</text><text x="${W-10}" y="${H+12}" font-size="10" fill="var(--text-2)" text-anchor="end">${lbls[lbls.length-1]}</text></svg><div class="row mu"><span>Mín ${fmt(mn)}</span><span>Máx ${fmt(mx)}</span></div>`}
+function fbars(a){const mx=Math.max(1,...a.map(x=>x.v));return`<div style="display:flex;gap:6px;align-items:flex-end;height:120px">${a.map(x=>`<div style="flex:1;text-align:center"><div class="mu" style="font-size:10px">${x.v?Math.round(x.v/100):''}</div><div style="background:var(--danger);border-radius:6px 6px 0 0;height:${Math.round(x.v/mx*80)}px;min-height:2px"></div><div class="mu" style="font-size:11px">${x.l}</div></div>`).join('')}</div>`}
+
+function fuelUI(v,fu,exps){
+ const st=fuelStats(fu,+v.tank_capacity_l||0),sp=fuelSpend(fu),P=s=>{const x=parseFloat(String($(s).value).replace(',','.'));return Number.isFinite(x)?x:null};
+ const linked=new Set(fu.map(f=>f.expense_id).filter(Boolean)),cands=exps.filter(e=>!linked.has(e.id)&&/combust|gasol|etanol/i.test(e.categories?.name||'')).slice(0,10);
+ const today=new Date().toISOString().slice(0,10),prep=fuelPrep(fu),segBy=Object.fromEntries(st.seg.map(s=>[s.id,s])),big='font-size:24px';
+ const top=`<h2>RODDA FUEL</h2><div class="grid">
+ <div class="card"><div class="mu">Consumo médio</div><div class="big" style="${big}">${st.kmL?n1(st.kmL)+' km/L':'—'}</div></div>
+ <div class="card"><div class="mu">Autonomia estimada</div><div class="big" style="${big}">${st.range?Math.round(st.range)+' km':'—'}</div></div>
+ <div class="card"><div class="mu">Custo por km</div><div class="big" style="${big}">${st.costKm?r3(st.costKm):'—'}</div></div>
+ <div class="card"><div class="mu">Gasto no mês</div><div class="big" style="${big};color:var(--danger)">${brl(sp.month)}</div></div></div>
+ ${st.kmL?'':'<p class="mu">Ainda não dá para calcular o consumo. Registre pelo menos 2 abastecimentos com tanque cheio e o km do painel (ou a distância percorrida).</p>'}
+ ${st.kmL&&!v.tank_capacity_l?'<p class="mu">Informe a capacidade do tanque em “Tanque e autonomia” para ver a autonomia.</p>':''}
+ <p class="mu" style="font-size:12px">A autonomia é uma estimativa e varia com trânsito, velocidade, carga e condições de uso.</p>
+ <button id="fnew">+ Novo abastecimento</button>`;
+ const card=f=>{const sg=segBy[f.id];return`<div class="card"><div class="row"><div><b>${brl(+f.cost_cents)}</b> <span class="mu">· ${n1(+f.liters)} L · ${fdt(f.fueled_at)}</span></div><div><button class="sm" data-fe="${f.id}" style="color:var(--text-2)">Editar</button> <button class="sm" data-fd="${f.id}">Excluir</button></div></div>
+  <div class="mu" style="margin-top:6px">${brl(Math.round(+f.cost_cents/ +f.liters))}/L${f.odometer_km!=null?' · '+f.odometer_km+' km':''}${f.full_tank===false?' · tanque parcial':''}${f.expense_id?' · no gasto ✓':''}</div>
+  ${sg?`<div class="mu" style="margin-top:4px;color:var(--success)">Consumo do trecho: ${n1(sg.kmL)} km/L · ${r3(sg.costKm)}/km</div>`:''}</div>`};
+ const body=`<div id="ffm" style="display:none;margin-top:12px"><div class="card"><div class="grid"><input id="fd" type="date" value="${today}"><input id="fo" inputmode="decimal" placeholder="Km do painel" value="${v.odometer_km||''}"></div>
+ <div class="grid"><input id="fl" inputmode="decimal" placeholder="Litros"><input id="ft" inputmode="decimal" placeholder="Valor pago (R$)"></div>
+ <div class="mu" id="fp" style="margin-bottom:10px">Preço por litro: —</div>
+ <label class="mu" style="display:block;margin-bottom:10px"><input type="checkbox" id="fh" checked style="margin-right:8px">Encheu o tanque</label>
+ <details class="more"><summary>Mais detalhes</summary><input id="fk" inputmode="decimal" placeholder="Distância desde o último (km, opcional)"><select id="fy"><option>Gasolina comum</option><option>Gasolina aditivada</option><option>Etanol</option><option>Outro</option></select><input id="fn" placeholder="Observações (opcional)">
+ <select id="ln"><option value="new">Lançar nos gastos (Combustível)</option><option value="none">Não lançar nos gastos</option>${cands.map(e=>`<option value="${e.id}">Vincular ao gasto de ${brl(e.amount_cents)} em ${new Date(e.spent_at).toLocaleDateString('pt-BR')}</option>`).join('')}</select></details>
+ <div class="msg" id="fm"></div><button id="fsave">Salvar abastecimento</button></div></div>
+ <details class="sec"><summary>Tanque e autonomia</summary><div class="card"><input id="tk" inputmode="decimal" placeholder="Capacidade do tanque (L)" value="${v.tank_capacity_l||''}"><button class="ghost" id="tks">Salvar tanque</button><div class="msg" id="tkm"></div>
+ <input id="lf" inputmode="decimal" placeholder="Combustível que ainda tem (L)"><div class="mu" id="lfo">Informe os litros que restam para estimar até onde dá para ir.</div></div></details>
+ <details class="sec"><summary>Mais números</summary><div class="card">
+ <div class="row"><span class="mu">Preço médio por litro</span><b>${st.avgPrice?brl(Math.round(st.avgPrice)):'—'}</b></div>
+ <div class="row"><span class="mu">Gasto nos últimos 7 dias</span><b>${brl(sp.week)}</b></div><div class="row"><span class="mu">Gasto no mês</span><b>${brl(sp.month)}</b></div>
+ <div class="row"><span class="mu">Consumo médio histórico</span><b>${st.kmL?n1(st.kmL)+' km/L':'—'}</b></div><div class="row"><span class="mu">Consumo do último trecho</span><b>${st.last?n1(st.last)+' km/L':'—'}</b></div>
+ <p class="mu" style="margin:8px 0 0">${st.seg.length?'Base: '+Math.round(st.dist)+' km e '+n1(st.liters)+' L em '+st.seg.length+' trecho(s) entre tanques cheios.':'Sem trechos completos ainda.'}</p></div></details>
+ <details class="sec"><summary>Gráficos</summary><div class="card"><div class="mu">Consumo (km/L)</div>${spark(st.seg.map(s=>s.kmL),st.seg.map(s=>fdt(s.date)),x=>n1(x))}</div>
+ <div class="card"><div class="mu">Preço por litro (R$)</div>${spark(prep.map(f=>f.cost/f.liters/100),prep.map(f=>fdt(f.fueled_at)),x=>'R$ '+x.toFixed(2).replace('.',','))}</div>
+ <div class="card"><div class="mu">Gasto por semana (R$)</div>${fbars(fuelSpendSeries(fu,'week'))}</div><div class="card"><div class="mu">Gasto por mês (R$)</div>${fbars(fuelSpendSeries(fu,'month'))}</div></details>
+ <details class="sec"><summary>Histórico de abastecimentos (${fu.length})</summary>${fu.length?[...fu].sort((a,b)=>String(b.fueled_at).localeCompare(String(a.fueled_at))).map(card).join(''):'<p class="mu">Nenhum abastecimento ainda.</p>'}</details>`;
+ let fEdit=null;
+ const bind=()=>{
+  $('#fnew').onclick=()=>{const f=$('#ffm');f.style.display=f.style.display==='none'?'block':'none'};
+  const upd=()=>{const L=P('#fl'),C=toCents($('#ft').value);$('#fp').textContent='Preço por litro: '+(L>0&&C>0?brl(Math.round(C/L)):'—')};$('#fl').oninput=$('#ft').oninput=upd;
+  $('#lf').oninput=()=>{const L=P('#lf');$('#lfo').textContent=!st.kmL?'Ainda sem consumo calculado.':L>=0?'Com '+n1(L)+' L dá para andar cerca de '+Math.round(st.kmL*L)+' km (estimativa).':''};
+  $('#tks').onclick=async()=>{const t=P('#tk');if(!(t>0&&t<=100))return $('#tkm').textContent='Informe um valor entre 0 e 100 litros.';
+   const{error}=await sb.from('vehicles').update({tank_capacity_l:t}).eq('id',vid);if(error)return $('#tkm').textContent=error.message;toast('Tanque salvo ✓');veiculo()};
+  document.querySelectorAll('[data-fe]').forEach(b=>b.onclick=()=>{const f=fu.find(x=>x.id===b.dataset.fe);fEdit=f.id;$('#ffm').style.display='block';
+   $('#fd').value=f.fueled_at;$('#fo').value=f.odometer_km??'';$('#fl').value=String(f.liters).replace('.',',');$('#ft').value=(f.cost_cents/100).toFixed(2).replace('.',',');$('#fh').checked=f.full_tank!==false;
+   $('#fk').value=f.distance_km??'';$('#fy').value=f.fuel_type||'Gasolina comum';$('#fn').value=f.notes||'';$('#ln').value='none';upd();$('#fsave').textContent='Atualizar abastecimento';$('#ffm').scrollIntoView&&$('#ffm').scrollIntoView()});
+  document.querySelectorAll('[data-fd]').forEach(b=>b.onclick=async()=>{const x=fu.find(z=>z.id===b.dataset.fd);if(!confirm('Excluir este abastecimento?'))return;
+   const dx=x.expense_id&&confirm('Excluir também o gasto de combustível vinculado?');await sb.from('fuelings').delete().eq('id',x.id);if(dx)await sb.from('expenses').delete().eq('id',x.expense_id);toast('Excluído');veiculo()});
+  $('#fsave').onclick=async()=>{const m=$('#fm');m.textContent='';const odo=P('#fo'),dist=P('#fk'),L=P('#fl'),C=toCents($('#ft').value),date=$('#fd').value;
+   const f={vehicle_id:vid,fueled_at:date,liters:L,cost_cents:C,odometer_km:odo,distance_km:dist,full_tank:$('#fh').checked,fuel_type:$('#fy').value,notes:$('#fn').value.trim()||null};
+   const V=fuelValidate(fu,{...f,id:fEdit},+v.tank_capacity_l||0,fEdit);if(V.error)return m.textContent=V.error;if(V.warn&&!confirm(V.warn+' Salvar mesmo assim?'))return;
+   let id=fEdit;const ex=fu.find(x=>x.id===fEdit)?.expense_id||null;
+   if(fEdit){const{error}=await sb.from('fuelings').update(f).eq('id',fEdit);if(error)return m.textContent=error.message}
+   else{const{data,error}=await sb.from('fuelings').insert(f).select('id').single();if(error)return m.textContent=error.message;id=data.id}
+   const mode=$('#ln').value,when=new Date(date+'T12:00:00').toISOString();
+   if(ex)await sb.from('expenses').update({amount_cents:C,spent_at:when,vehicle_id:vid}).eq('id',ex);
+   else if(mode==='new'){const cid=await cat('Combustível','work'),r=await sb.from('expenses').insert({kind:'work',category_id:cid,amount_cents:C,source:'earnings',vehicle_id:vid,spent_at:when}).select('id').single();if(r.data)await sb.from('fuelings').update({expense_id:r.data.id}).eq('id',id)}
+   else if(mode!=='none'){await sb.from('expenses').update({vehicle_id:vid}).eq('id',mode);await sb.from('fuelings').update({expense_id:mode}).eq('id',id)}
+   if(odo>(v.odometer_km||0))await sb.from('vehicles').update({odometer_km:odo}).eq('id',vid);
+   toast('Abastecimento salvo ✓');veiculo()}};
+ return{top,body,bind}}
+
 async function veiculo(){
  shell('<p class="mu">Carregando…</p>');
  const q=(t,c)=>sb.from(t).select('*').eq('vehicle_id',vid).order(c,{ascending:false}).limit(200).then(r=>r.data||[]);
  const[{data:v},ch,fu,mt]=await Promise.all([sb.from('vehicles').select('*').eq('id',vid).single(),q('charges','charged_at'),q('fuelings','fueled_at'),q('maintenances','done_at')]);
  if(!v){tab='veiculos';return render()}
- const el=ELE.includes(v.type),gas=v.type==='moto';let st='';
+ const el=ELE.includes(v.type),gas=v.type==='moto';let st='',FX=null;
+  if(gas){const{data:xe}=await sb.from('expenses').select('id,amount_cents,spent_at,categories(name)').eq('kind','work').order('spent_at',{ascending:false}).limit(60);FX=fuelUI(v,fu,xe||[]);st=FX.top}
  if(el){const g=ch.filter(c=>c.km>0&&c.battery_end_pct>c.battery_start_pct),pc=g.reduce((s,c)=>s+c.battery_end_pct-c.battery_start_pct,0),km=sumC(g,'km'),co=sumC(g,'cost_cents'),kw=sumC(g.filter(c=>c.kwh>0),'kwh'),kk=sumC(g.filter(c=>c.kwh>0),'km');
   st=g.length?`<div class="card"><div class="mu">Autonomia observada</div><b>${n1(km/(pc/100))} km por carga completa</b><br><div class="mu">Custo por km: ${r3(co/km)}${kw?' · Consumo: '+n1(kw/kk*100)+' kWh/100 km':''}</div></div>`:'<p class="mu">Registre recargas com km rodados para ver autonomia e custo por km.</p>'}
- if(gas){const s=[...fu].filter(f=>f.odometer_km).sort((a,b)=>a.odometer_km-b.odometer_km);let km=0,li=0,co=0;for(let i=1;i<s.length;i++){km+=s[i].odometer_km-s[i-1].odometer_km;li+=s[i].liters;co+=s[i].cost_cents}
-  st=km>0?`<div class="card"><div class="mu">Consumo médio</div><b>${n1(km/li)} km/l</b><div class="mu">Custo por km: ${r3(co/km)}</div></div>`:'<p class="mu">Registre ao menos 2 abastecimentos com o km do painel para ver consumo e custo por km.</p>'}
  const t0=new Date(Date.now()+7*864e5).toISOString().slice(0,10),alert=m=>(m.remind_at&&m.remind_at<=t0)||(m.remind_km&&(v.odometer_km||0)>=m.remind_km-100);
  shell(`<div class="row"><h1>${esc(v.name)}</h1><button class="sm" id="bk" style="color:var(--text-2)">‹ Voltar</button></div><p class="mu">${VT[v.type]} · ${v.odometer_km||0} km <a id="ok" style="color:var(--primary)">atualizar km</a></p>${st}
  ${el?`<h2>Nova recarga</h2><div class="card"><div class="grid"><input id="b1" inputmode="numeric" placeholder="Bateria inicial %"><input id="b2" inputmode="numeric" placeholder="Bateria final %"></div>
  <div class="grid"><input id="kmx" inputmode="decimal" placeholder="Km rodados desde a última"><input id="kwh" inputmode="decimal" placeholder="kWh (opcional)"></div><input id="cst" inputmode="decimal" placeholder="Custo da recarga (R$)"><div class="msg" id="m1"></div><button id="a1">Salvar recarga</button></div>`:''}
- ${gas?`<h2>Novo abastecimento</h2><div class="card"><div class="grid"><input id="lt" inputmode="decimal" placeholder="Litros"><input id="cst" inputmode="decimal" placeholder="Valor (R$)"></div><input id="odo" inputmode="decimal" placeholder="Km do painel"><div class="msg" id="m1"></div><button id="a2">Salvar abastecimento</button></div>`:''}
+ ${gas?FX.body:''}
  <h2>Nova manutenção</h2><div class="card"><input id="mk" placeholder="Serviço (pneu, freio, revisão, bateria…)"><div class="grid"><input id="mc" inputmode="decimal" placeholder="Custo (R$)"><input id="md" type="date"></div>
  <div class="grid"><input id="ra" type="date" title="Lembrar na data"><input id="rk" inputmode="numeric" placeholder="Lembrar no km"></div><p class="mu">Lembrete por data e/ou km (opcional).</p><div class="msg" id="m3"></div><button id="a3">Salvar manutenção</button></div>
- <h2>Histórico</h2>${[...ch.map(c=>({t:'ch',id:c.id,x:`Recarga ${c.battery_start_pct}→${c.battery_end_pct}% · ${brl(c.cost_cents||0)}`,d:c.charged_at})),...fu.map(f=>({t:'fu',id:f.id,x:`Abastecimento ${f.liters} L · ${brl(f.cost_cents)}`,d:f.fueled_at})),...mt.map(m=>({t:'mt',id:m.id,x:`${esc(m.kind)} · ${brl(m.cost_cents||0)}${alert(m)?' · <b style="color:var(--warning)">LEMBRETE</b>':''}`,d:m.done_at||''}))].map(h=>`<div class="card row"><div><b>${h.x}</b><div class="mu">${h.d?new Date(h.d+'T12:00').toLocaleDateString('pt-BR'):''}</div></div><button class="sm" data-t="${h.t}" data-id="${h.id}">Excluir</button></div>`).join('')}
+ <h2>Histórico</h2>${[...ch.map(c=>({t:'ch',id:c.id,x:`Recarga ${c.battery_start_pct}→${c.battery_end_pct}% · ${brl(c.cost_cents||0)}`,d:c.charged_at})),...(gas?[]:fu).map(f=>({t:'fu',id:f.id,x:`Abastecimento ${f.liters} L · ${brl(f.cost_cents)}`,d:f.fueled_at})),...mt.map(m=>({t:'mt',id:m.id,x:`${esc(m.kind)} · ${brl(m.cost_cents||0)}${alert(m)?' · <b style="color:var(--warning)">LEMBRETE</b>':''}`,d:m.done_at||''}))].map(h=>`<div class="card row"><div><b>${h.x}</b><div class="mu">${h.d?new Date(h.d+'T12:00').toLocaleDateString('pt-BR'):''}</div></div><button class="sm" data-t="${h.t}" data-id="${h.id}">Excluir</button></div>`).join('')}
  <br><button class="ghost" id="dv" style="color:var(--danger)">Excluir veículo</button>`);
  const N=s=>parseFloat(String($(s).value).replace(',','.')),TB={ch:'charges',fu:'fuelings',mt:'maintenances'};
- $('#bk').onclick=()=>{tab='veiculos';render()};
+ $('#bk').onclick=()=>{tab='veiculos';render()};if(gas)FX.bind();
  $('#ok').onclick=async()=>{const k=N_(prompt('Km atual do veículo?'));if(k>=0){await sb.from('vehicles').update({odometer_km:k}).eq('id',vid);veiculo()}};
  const run=async(t,o,m)=>{const{error}=await sb.from(t).insert({vehicle_id:vid,...o});if(error)return $(m).textContent=error.message;toast('Salvo ✓');veiculo()};
  if($('#a1'))$('#a1').onclick=()=>{const a=N('#b1'),b=N('#b2');if(!(a>=0&&b>a&&b<=100))return $('#m1').textContent='Bateria final deve ser maior que a inicial (0 a 100%).';
