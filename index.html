@@ -43,6 +43,7 @@ a{color:var(--primary);cursor:pointer;text-decoration:underline;text-underline-o
 .mu{color:var(--text-2);font-size:var(--fs-sm)}
 .row{display:flex;justify-content:space-between;align-items:center;gap:var(--s-2) var(--s-3);flex-wrap:wrap}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr));gap:var(--s-3)}.grid3{grid-template-columns:repeat(auto-fit,minmax(min(100%,7.5rem),1fr))}
+.platform-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr));gap:.75rem;margin:.75rem 0 1rem}.platform-option{display:flex;align-items:center;gap:.75rem;min-height:4rem;padding:.75rem;background:var(--surface);border:2px solid var(--border);border-radius:var(--r-md);cursor:pointer;transition:border-color var(--dur),transform var(--dur),background var(--dur)}.platform-option:hover{border-color:var(--control)}.platform-option.selected{border-color:var(--platform-color);background:var(--surface)}.platform-option:focus-within{outline:.1875rem solid var(--primary);outline-offset:.125rem}.platform-option input{width:1.25rem!important;height:1.25rem;min-height:0;margin:0!important;flex:none;accent-color:var(--primary)}.platform-option .platform-mark{width:1.75rem;height:1.75rem;border:1px solid var(--border);border-radius:.5rem;display:grid;place-items:center;font-size:.75rem;font-weight:800;color:var(--text-2);background:var(--bg)}
 .msg{color:var(--danger);font-size:.9375rem;min-height:1.25rem}.msg:not(:empty)::before{content:"⚠ "}.ok{color:var(--success)}.ok::before{content:"✓ "}
 /* campos */
 .fld{min-width:0;flex:1}.fl{display:block;font-size:var(--fs-sm);color:var(--text-2);margin:0 0 .3rem}
@@ -205,7 +206,7 @@ async function render(){
 async function ganhos(){
  editId=null;
  shell(LOADING);
- const[all,{data:pl}]=await Promise.all([loadEarnings(),sb.from('platforms').select('name')]);
+ const[all,{data:pl}]=await Promise.all([loadEarnings(),sb.from('platforms').select('name').eq('user_id',user.id)]);
  const days={};all.forEach(e=>{const k=new Date(e.earned_at).toLocaleDateString('pt-BR');(days[k]=days[k]||[]).push(e)});
  shell(`<h1>Ganhos</h1><div class="card">
  <input id="app_" list="pls" placeholder="Aplicativo (iFood, 99Food, Keeta…)"><datalist id="pls">${(pl||[]).map(x=>`<option value="${esc(x.name)}">`).join('')}</datalist><div style="display:flex;gap:6px;flex-wrap:wrap;margin:-4px 0 10px">${(pl||[]).map(x=>`<button class="sm" data-pl="${esc(x.name)}" style="color:var(--text-2)">${esc(x.name)}</button>`).join('')}</div>
@@ -219,8 +220,8 @@ async function ganhos(){
  if($('#vm'))$('#vm').onclick=()=>{showAll.g=true;ganhos()};
  $('#add').onclick=async()=>{const v=toCents($('#val').value);if(!v)return $('#msg').textContent='Informe o valor recebido.';
   let pid=null;const nm=$('#app_').value.trim();
-  if(nm){let{data:ex}=await sb.from('platforms').select('id').ilike('name',nm).maybeSingle();
-   if(!ex){const r=await sb.from('platforms').insert({name:nm}).select('id').single();if(r.error)return $('#msg').textContent=r.error.message.includes('FREE')?r.error.message:r.error.message;ex=r.data}pid=ex.id}
+  if(nm){let{data:ex}=await sb.from('platforms').select('id').eq('user_id',user.id).ilike('name',nm).maybeSingle();
+   if(!ex){const r=await sb.from('platforms').insert({user_id:user.id,name:nm}).select('id').single();if(r.error)return $('#msg').textContent=r.error.message.includes('FREE')?r.error.message:r.error.message;ex=r.data}pid=ex.id}
   const row={platform_id:pid,amount_cents:v,bonus_cents:toCents($('#bon').value),tips_cents:toCents($('#tip').value),deliveries:parseInt($('#ent').value)||0,minutes_worked:parseInt($('#min').value)||null,bonus_confirmed:$('#bc').checked};const{error}=await(editId?sb.from('earnings').update(row).eq('id',editId):sb.from('earnings').insert(row));
   if(error)return $('#msg').textContent=error.message;toast('Salvo ✓');ganhos()};
  document.querySelectorAll('button.sm[data-id]').forEach(b=>b.onclick=async()=>{if(confirm('Excluir este ganho?')){await sb.from('earnings').delete().eq('id',b.dataset.id);ganhos()}});
@@ -263,6 +264,12 @@ async function inicio(){
  ${all.length?'':'<div class="card"><b>Comece aqui</b><p class="mu">Registre seu primeiro ganho na aba Ganhos.</p></div>'}`);
  $('#pf').onclick=()=>{tab='perfil';perfil()};document.querySelectorAll('[data-go]').forEach(c=>c.onclick=()=>{tab=c.dataset.go;scrollTo(0,0);render()})}
 const SRC={personal:'Pessoal',earnings:'Ganho do trabalho',bills:'Contas fixas',reserve:'Reserva',cdb:'CDB'};
+const DELIVERY_PLATFORMS=[['Uber','#000000','U'],['99Food','#FFD500','99'],['iFood','#EA1D2C','iF'],['Keeta','#00A86B','K']];
+const platformNames=p=>Array.isArray(p?.notif_prefs?.delivery_platforms)?p.notif_prefs.delivery_platforms:[];
+const platformSelection=(selected=[])=>`<div class="platform-grid" role="group" aria-label="Aplicativos de entrega">${DELIVERY_PLATFORMS.map(([name,color,mark])=>{const on=selected.includes(name);return`<label class="platform-option${on?' selected':''}" style="--platform-color:${color}" data-platform="${name}"><input type="checkbox" value="${name}"${on?' checked':''}><span class="platform-mark" aria-hidden="true">${mark}</span><span><b>${name}</b><span class="mu" style="display:block">${on?'Selecionado':'Selecionar'}</span></span></label>`}).join('')}</div>`;
+function bindPlatformSelection(){document.querySelectorAll('.platform-option').forEach(card=>{const input=card.querySelector('input');const sync=()=>{card.classList.toggle('selected',input.checked);card.querySelector('.mu').textContent=input.checked?'Selecionado':'Selecionar'};input.onchange=sync;sync()})}
+async function savePlatformSelection(names){const selected=[...new Set(names.filter(n=>DELIVERY_PLATFORMS.some(([x])=>x===n)))];const{data:p,error:pe}=await sb.from('profiles').select('notif_prefs').single();if(pe)return pe;const prefs={...(p?.notif_prefs||{}),delivery_platforms:selected};const{error}=await sb.from('profiles').update({notif_prefs:prefs}).eq('id',user.id);if(error)return error;for(const name of selected){const{data:existing}=await sb.from('platforms').select('id').eq('user_id',user.id).ilike('name',name).maybeSingle();if(!existing){const r=await sb.from('platforms').insert({user_id:user.id,name});if(r.error&&!/duplicate|unique/i.test(r.error.message))return r.error}}return null}
+function selectedPlatformNames(){return[...document.querySelectorAll('.platform-option input:checked')].map(i=>i.value)}
 const balOf=(dp,wd,ex)=>k=>sumC(dp.filter(x=>x.bucket===k))-sumC(wd.filter(x=>x.bucket===k))-sumC(ex.filter(x=>x.source===k));
 async function despesas(){
  editId=null;shell(LOADING);
@@ -567,9 +574,9 @@ privacidade:['Política de Privacidade',['Dados que coletamos: e-mail, nome (opc
 function doc(k){setLayoutMode(false);const[t,p]=DOCS[k];app.innerHTML=`<div class="row"><h1>${t}</h1><button class="sm" id="bk" style="color:var(--text-2)">‹ Voltar</button></div>${p.map(x=>`<div class="card">${x}</div>`).join('')}`;$('#bk').onclick=()=>render()}
 
 function onboarding(){
- setLayoutMode(false);app.innerHTML=`<div class="brand"><img class="logo" src="icon-192.png" alt=""><span class="wm">RODDA</span></div><h1>Bem-vindo</h1><p class="mu">Responda rápido. Dá para pular.</p><div class="card"><input id="nm" placeholder="Seu nome"><input id="ap" placeholder="App que você usa (iFood, 99Food, Keeta…)"><input id="dw" inputmode="numeric" placeholder="Dias de trabalho por semana"><input id="mg" inputmode="decimal" placeholder="Meta de ganhos do mês (R$)">
+ setLayoutMode(false);app.innerHTML=`<div class="brand"><img class="logo" src="icon-192.png" alt=""><span class="wm">RODDA</span></div><h1>Bem-vindo</h1><p class="mu">Responda rápido. Dá para pular.</p><div class="card"><input id="nm" placeholder="Seu nome"><p class="mu" style="margin-bottom:.25rem">Quais aplicativos você usa? Você pode selecionar vários ou nenhum.</p>${platformSelection()}<input id="dw" inputmode="numeric" placeholder="Dias de trabalho por semana"><input id="mg" inputmode="decimal" placeholder="Meta de ganhos do mês (R$)">
  <p class="mu">Divisão padrão: 50% contas, 30% pessoal, 20% reserva. Dá para mudar em Perfil.</p><div class="msg" id="msg"></div><button id="ok">Começar</button><br><br><button class="ghost" id="sk">Pular</button></div>`;
- const fim=async s=>{const u={onboarding_done:true};if(s){if($('#nm').value)u.full_name=$('#nm').value.trim();const d=parseInt($('#dw').value);if(d>=1&&d<=7)u.work_days_per_week=d;const g=toCents($('#mg').value);if(g)u.monthly_goal_cents=g;const a=$('#ap').value.trim();if(a)await sb.from('platforms').insert({name:a})}
+ bindPlatformSelection();const fim=async s=>{const u={onboarding_done:true};if(s){if($('#nm').value)u.full_name=$('#nm').value.trim();const d=parseInt($('#dw').value);if(d>=1&&d<=7)u.work_days_per_week=d;const g=toCents($('#mg').value);if(g)u.monthly_goal_cents=g;const pe=await savePlatformSelection(selectedPlatformNames());if(pe)return $('#msg').textContent=pe.message}
   const{error}=await sb.from('profiles').update(u).eq('id',user.id);if(error)return $('#msg').textContent=error.message;ob=true;render()};
  $('#ok').onclick=()=>fim(true);$('#sk').onclick=()=>fim(false)}
 
@@ -587,13 +594,15 @@ async function relatorios(){
  <h2>Resumo mensal</h2>${M.slice().reverse().map(m=>`<div class="card"><div class="row"><b>${m.l}</b><b style="color:${m.p<0?'var(--danger)':'var(--success)'}">${brl(m.p)}</b></div><div class="mu">Ganhos ${brl(m.g)} · Gastos do trabalho ${brl(m.w)}</div></div>`).join('')}<p class="mu">Lucro = ganhos − despesas do trabalho. Valores calculados dos seus registros.</p>`)}
 
 async function perfil(){
- shell(LOADING);const{data:p}=await sb.from('profiles').select('*').single(),v=c=>c?(c/100).toFixed(2).replace('.',','):'';
+ shell(LOADING);const[{data:p},{data:pls}]=await Promise.all([sb.from('profiles').select('*').single(),sb.from('platforms').select('name')]),v=c=>c?(c/100).toFixed(2).replace('.',','):'';const saved=platformNames(p),selected=saved.length?saved:(pls||[]).map(x=>x.name).filter(n=>DELIVERY_PLATFORMS.some(([x])=>x===n));
  shell(`<h1>Perfil</h1><div class="card"><div class="mu">Conta</div><b>${esc(user.email)}</b><br><br><input id="nm" placeholder="Seu nome" value="${esc(p?.full_name||'')}"><input id="mg" inputmode="decimal" placeholder="Meta mensal de ganhos (R$)" value="${v(p?.monthly_goal_cents)}"><div class="msg" id="m1"></div><button class="ghost" id="sd">Salvar dados</button></div>
+ <div class="card"><h2 style="margin-top:0">Aplicativos de entrega</h2><p class="mu">Selecione os aplicativos que você usa. Isso organiza as opções e relatórios, sem conectar nenhuma conta externa.</p>${platformSelection(selected)}<div class="msg" id="m4"></div><button class="ghost" id="sp">Salvar aplicativos</button></div>
  <details class="sec"><summary>Divisão dos ganhos</summary><div class="card"><div style="display:flex;gap:8px"><input id="s1" inputmode="numeric" value="${p?.split_bills_pct}" title="Contas"><input id="s2" inputmode="numeric" value="${p?.split_personal_pct}" title="Pessoal"><input id="s3" inputmode="numeric" value="${p?.split_reserve_pct}" title="Reserva"></div>
  <div class="mu" style="margin-bottom:8px">Contas · Pessoal · Reserva (soma 100)</div><select id="sb"><option value="gross" ${p?.split_base==='gross'?'selected':''}>Calcular sobre ganhos brutos</option><option value="net" ${p?.split_base==='net'?'selected':''}>Calcular sobre o lucro (após despesas do trabalho)</option></select><div class="msg" id="m2"></div><button class="ghost" id="ss">Salvar divisão</button></div></details>
  ${a11yPanel()}<details class="sec"><summary>Dados e privacidade</summary><div class="card"><div class="msg" id="m3"></div><button class="ghost" id="ex">Exportar ganhos e despesas (CSV)</button><br><br><div class="row"><a id="tm" style="color:var(--primary)">Termos de uso</a><a id="pv" style="color:var(--primary)">Privacidade</a></div><br><button class="ghost" id="del" style="color:var(--danger)">Excluir minha conta e meus dados</button></div></details>
  <button class="ghost" id="out">Sair</button>`);
- $('#sd').onclick=async()=>{const{error}=await sb.from('profiles').update({full_name:$('#nm').value.trim()||null,monthly_goal_cents:toCents($('#mg').value)||null}).eq('id',user.id);$('#m1').innerHTML=error?esc(error.message):'<span class="ok">Salvo.</span>'};
+ bindPlatformSelection();$('#sd').onclick=async()=>{const{error}=await sb.from('profiles').update({full_name:$('#nm').value.trim()||null,monthly_goal_cents:toCents($('#mg').value)||null}).eq('id',user.id);$('#m1').innerHTML=error?esc(error.message):'<span class="ok">Salvo.</span>'};
+ $('#sp').onclick=async()=>{const e=await savePlatformSelection(selectedPlatformNames());$('#m4').innerHTML=e?esc(e.message):'<span class="ok">Aplicativos salvos.</span>'};
  $('#ss').onclick=async()=>{const a=+$('#s1').value,b=+$('#s2').value,c=+$('#s3').value;if([a,b,c].some(x=>!(x>=0))||a+b+c!==100)return $('#m2').textContent='Os três valores devem somar 100.';
   const{error}=await sb.from('profiles').update({split_bills_pct:a,split_personal_pct:b,split_reserve_pct:c,split_base:$('#sb').value}).eq('id',user.id);$('#m2').innerHTML=error?esc(error.message):'<span class="ok">Salvo.</span>'};
  $('#ex').onclick=async()=>{$('#m3').textContent='';const{data,error}=await sb.rpc('export_my_data');if(error)return $('#m3').textContent=error.message;baixar('rodda-ganhos.csv',csv(data.earnings));baixar('rodda-despesas.csv',csv(data.expenses))};
@@ -627,7 +636,7 @@ function countUps(){app.querySelectorAll('.big').forEach(el=>{const v=parseBRL(e
 function barsIn(){app.querySelectorAll('div[style*="width:"]').forEach(el=>{const w=el.style.width;if(!w||!w.endsWith('%'))return;el.style.width='0%';el.style.transition='width .7s var(--ease)';requestAnimationFrame(()=>requestAnimationFrame(()=>{el.style.width=w}))})}
 function enhance(){try{
  // 1) rótulos visíveis e permanentes para todos os campos (placeholder some ao digitar)
- app.querySelectorAll('input:not([type=checkbox]):not([type=hidden]),select').forEach(el=>{if(el.closest('.fld')||el.closest('#pv'))return;const t=labelFor(el);if(!t)return;
+ app.querySelectorAll('input:not([type=checkbox]):not([type=hidden]),select').forEach(el=>{if(el.closest('.fld')||el.closest('#pv')||el.closest('.platform-option'))return;const t=labelFor(el);if(!t)return;
   if(!el.id)el.id='f'+(++uid);const w=document.createElement('div'),l=document.createElement('label');w.className='fld';l.className='fl';l.htmlFor=el.id;l.textContent=t;
   if(el.style.display==='none'){w.style.display='none';el.style.display=''}el.replaceWith(w);w.append(l,el);if((el.placeholder||'').trim()===t)el.placeholder=''});
  app.querySelectorAll('#pv input').forEach(i=>i.setAttribute('aria-label',(BK[i.dataset.b]||'Valor')+' (R$)'));
