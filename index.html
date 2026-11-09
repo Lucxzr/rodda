@@ -194,7 +194,9 @@ function sum(list){const t=list.reduce((s,e)=>s+total(e),0),n=list.reduce((s,e)=
  const min=list.filter(e=>e.minutes_worked>0),mm=min.reduce((s,e)=>s+e.minutes_worked,0),mt=min.reduce((s,e)=>s+total(e),0);
  return{t,n,avg:n?Math.round(t/n):0,hr:mm?Math.round(mt/(mm/60)):0,mm}}
 
-async function loadEarnings(){const{data,error}=await sb.from('earnings').select('*,platforms(name)').order('earned_at',{ascending:false}).limit(500);if(error){dataLoadError=error.message;return[]}return data||[]}
+const PAGE_SIZE=25;
+async function loadEarnings(){const{data,error}=await sb.from('earnings').select('*,platforms(name)',{count:'exact'}).order('earned_at',{ascending:false}).range(0,PAGE_SIZE-1);if(error){dataLoadError=error.message;return[]}return data||[]}
+async function loadEarningsAll(){const out=[];for(let page=0;;page++){const{data,error}=await sb.from('earnings').select('*,platforms(name)').order('earned_at',{ascending:false}).range(page*200,page*200+199);if(error){dataLoadError=error.message;return[]}out.push(...(data||[]));if(!data||data.length<200)break}return out}
 
 async function render(){
  if(tab!==prevTab){navFocus=true;prevTab=tab}
@@ -204,9 +206,8 @@ async function render(){
  return({inicio,ganhos,despesas,contas,dinheiro,mais,metas,veiculos,veiculo,desempenho,relatorios,perfil}[tab]||inicio)()}
 
 async function ganhos(){
- editId=null;
- shell(LOADING);
- const[all,{data:pl}]=await Promise.all([loadEarnings(),sb.from('platforms').select('name').eq('user_id',user.id)]);
+ editId=null;dataLoadError='';shell(LOADING);const page=showAll.gPage||0;
+ const[q,{data:pl}]=await Promise.all([sb.from('earnings').select('*,platforms(name)',{count:'exact'}).order('earned_at',{ascending:false}).range(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE-1),sb.from('platforms').select('name').eq('user_id',user.id)]);if(q.error){dataLoadError=q.error.message;return shell('<h1>Ganhos</h1>'+dataErrorCard())}const all=q.data||[],totalCount=q.count||0,totalPages=Math.max(1,Math.ceil(totalCount/PAGE_SIZE));
  const days={};all.forEach(e=>{const k=new Date(e.earned_at).toLocaleDateString('pt-BR');(days[k]=days[k]||[]).push(e)});
  shell(`<h1>Ganhos</h1><div class="card">
  <input id="app_" list="pls" placeholder="Aplicativo (iFood, 99Food, Keeta…)"><datalist id="pls">${(pl||[]).map(x=>`<option value="${esc(x.name)}">`).join('')}</datalist><div style="display:flex;gap:6px;flex-wrap:wrap;margin:-4px 0 10px">${(pl||[]).map(x=>`<button class="sm" data-pl="${esc(x.name)}" style="color:var(--text-2)">${esc(x.name)}</button>`).join('')}</div>
@@ -216,8 +217,8 @@ async function ganhos(){
  <label class="mu"><input type="checkbox" id="bc" style="width:auto;margin-right:8px">Bônus já confirmado</label></details><br>
  <div class="msg" id="msg"></div><button id="add">Salvar ganho</button></div>
  ${all.length?'':'<div class="card"><p class="mu">Nenhum ganho ainda. Preencha o valor acima e toque em Salvar ganho.</p></div>'}
- ${Object.entries(days).slice(0,showAll.g?999:7).map(([k,l])=>`<h2>${k} · ${brl(sum(l).t)}</h2>`+l.map(e=>`<div class="card row"><div><b style="color:var(--success)">${brl(total(e))}</b><div class="mu">${esc(e.platforms?.name||'Sem app')} · ${e.deliveries} entregas</div></div><div><button class="sm" data-ed="${e.id}" style="color:var(--text-2)">Editar</button> <button class="sm" data-id="${e.id}">Excluir</button></div></div>`).join('')).join('')}${Object.keys(days).length>7&&!showAll.g?'<button class="ghost" id="vm">Ver mais dias</button>':''}`);
- if($('#vm'))$('#vm').onclick=()=>{showAll.g=true;ganhos()};
+ ${Object.entries(days).map(([k,l])=>`<h2>${k} · ${brl(sum(l).t)}</h2>`+l.map(e=>`<div class="card row"><div><b style="color:var(--success)">${brl(total(e))}</b><div class="mu">${esc(e.platforms?.name||'Sem app')} · ${e.deliveries} entregas</div></div><div><button class="sm" data-ed="${e.id}" style="color:var(--text-2)">Editar</button> <button class="sm" data-id="${e.id}">Excluir</button></div></div>`).join('')).join('')}<div class="row" style="margin-top:12px"><button class="ghost" id="gp" ${page?'':'disabled'}>Anterior</button><span class="mu">Página ${page+1} de ${totalPages} · ${totalCount} registros</span><button class="ghost" id="gn" ${page+1<totalPages?'':'disabled'}>Próxima</button></div>`);
+ $('#gp').onclick=()=>{showAll.gPage=page-1;ganhos()};$('#gn').onclick=()=>{showAll.gPage=page+1;ganhos()};
  $('#add').onclick=async()=>{const v=toCents($('#val').value);if(!v)return $('#msg').textContent='Informe o valor recebido.';
   let pid=null;const nm=$('#app_').value.trim();
   if(nm){let{data:ex}=await sb.from('platforms').select('id').eq('user_id',user.id).ilike('name',nm).maybeSingle();
@@ -242,14 +243,15 @@ const mStart=()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(
 const inMonth=(d)=>new Date(d)>=mStart();
 async function cat(name,kind){let{data:ex}=await sb.from('categories').select('id').ilike('name',name).eq('kind',kind).maybeSingle();
  if(ex)return ex.id;const r=await sb.from('categories').insert({name,kind}).select('id').single();return r.data?.id||null}
-const rows=async(t,o)=>{const{data,error}=await sb.from(t).select('*'+(o?.sel||'')).order(o?.by||'created_at',{ascending:false}).limit(300);if(error){dataLoadError=error.message;return[]}return data||[]};
+const rows=async(t,o)=>{const{data,error}=await sb.from(t).select('*'+(o?.sel||''),{count:'exact'}).order(o?.by||'created_at',{ascending:false}).range(0,PAGE_SIZE-1);if(error){dataLoadError=error.message;return[]}return data||[]};
+async function rowsAll(t,o){const out=[],size=200;for(let page=0;;page++){const{data,error}=await sb.from(t).select('*'+(o?.sel||'')).order(o?.by||'created_at',{ascending:false}).range(page*size,page*size+size-1);if(error){dataLoadError=error.message;return[]}out.push(...(data||[]));if(!data||data.length<size)break}return out}
 const dataErrorCard=()=>dataLoadError?`<div class="card"><b>Não foi possível carregar os dados.</b><p class="msg">${esc(dataLoadError)}</p><p class="mu">Nenhum valor foi substituído por R$ 0,00.</p></div>`:'';
 const sumC=(l,k='amount_cents')=>l.reduce((s,e)=>s+(e[k]||0),0);
 function bind(id,fn){document.querySelectorAll(id).forEach(b=>b.onclick=()=>fn(b.dataset.id))}
 
 async function inicio(){
  dataLoadError='';shell(LOADING);
- const[all,ex,{data:prof},bills]=await Promise.all([loadEarnings(),rows('expenses',{by:'spent_at'}),sb.from('profiles').select('*').single(),rows('fixed_bills')]);
+ const[all,ex,{data:prof},bills]=await Promise.all([loadEarningsAll(),rowsAll('expenses',{by:'spent_at'}),sb.from('profiles').select('*').single(),rowsAll('fixed_bills')]);
  if(dataLoadError)return shell('<h1>Início</h1>'+dataErrorCard());
  const now=new Date(),d0=new Date(now.getFullYear(),now.getMonth(),now.getDate()),mo=mStart();
  const f=d=>all.filter(e=>new Date(e.earned_at)>=d),today=sum(f(d0)),month=sum(f(mo));
@@ -275,21 +277,20 @@ async function savePlatformSelection(names){const selected=[...new Set(names.fil
 function selectedPlatformNames(){return[...document.querySelectorAll('.platform-option input:checked')].map(i=>i.value)}
 const balOf=(dp,wd,ex)=>k=>sumC(dp.filter(x=>x.bucket===k))-sumC(wd.filter(x=>x.bucket===k))-sumC(ex.filter(x=>x.source===k));
 async function despesas(){
- editId=null;dataLoadError='';shell(LOADING);
- const[l,dp,wd]=await Promise.all([rows('expenses',{by:'spent_at',sel:',categories(name)'}),rows('deposits',{by:'deposited_at'}),rows('withdrawals',{by:'withdrawn_at'})]);
+ editId=null;dataLoadError='';shell(LOADING);const page=showAll.dPage||0;
+ const[q,dp,wd,allExpenses]=await Promise.all([sb.from('expenses').select('*,categories(name)',{count:'exact'}).order('spent_at',{ascending:false}).range(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE-1),rowsAll('deposits',{by:'deposited_at'}),rowsAll('withdrawals',{by:'withdrawn_at'}),rowsAll('expenses',{by:'spent_at',sel:',categories(name)'})]);const l=q.data||[],totalCount=q.count||0,totalPages=Math.max(1,Math.ceil(totalCount/PAGE_SIZE));if(q.error)dataLoadError=q.error.message;
  if(dataLoadError)return shell('<h1>Gastos</h1>'+dataErrorCard());
- const bal=balOf(dp,wd,l),w=sumC(l.filter(e=>e.kind==='work'&&inMonth(e.spent_at))),p=sumC(l.filter(e=>e.kind==='personal'&&inMonth(e.spent_at))),vis=showAll.d?l:l.slice(0,10);
+ const bal=balOf(dp,wd,allExpenses),w=sumC(allExpenses.filter(e=>e.kind==='work'&&inMonth(e.spent_at))),p=sumC(allExpenses.filter(e=>e.kind==='personal'&&inMonth(e.spent_at)));
  shell(`<h1>Gastos</h1><div class="grid"><div class="card"><div class="mu">Pessoal disponível</div><b style="color:${bal('personal')<0?'var(--danger)':'var(--text)'}">${brl(bal('personal'))}</b></div>
  <div class="card"><div class="mu">Gasto no mês</div><b style="color:var(--danger)">${brl(w+p)}</b><div class="mu">Trabalho ${brl(w)} · Pessoal ${brl(p)}</div></div></div>
  <div class="card"><select id="kd"><option value="work">Gasto do trabalho</option><option value="personal">Gasto pessoal</option></select>
  <input id="ct" list="cts" placeholder="Categoria (Combustível, Recarga, Comida…)"><datalist id="cts">${['Combustível','Recarga elétrica','Alimentação','Manutenção','Pneus','Peças','Internet','Lazer','Compras'].map(x=>`<option value="${x}">`).join('')}</datalist>
  <div class="grid"><input id="vl" inputmode="decimal" placeholder="Valor (R$)"><input id="ed" type="date" value="${new Date().toISOString().slice(0,10)}"></div><select id="sr">${Object.entries(SRC).map(([k,v])=>`<option value="${k}">Descontar de: ${v}</option>`).join('')}</select>
  <div class="msg" id="msg"></div><button id="add">Salvar gasto</button></div>
- ${l.length?'':'<div class="card"><p class="mu">Nenhum gasto ainda. Registre combustível, recarga ou a comida do dia.</p></div>'}
- ${vis.map(e=>`<div class="card row"><div><b style="color:var(--danger)">${brl(e.amount_cents)}</b><div class="mu">${esc(e.categories?.name||'Sem categoria')} · ${e.kind==='work'?'trabalho':'pessoal'} · ${new Date(e.spent_at).toLocaleDateString('pt-BR')}${e.source?' · '+SRC[e.source]:''}</div></div><div><button class="sm" data-ed="${e.id}" style="color:var(--text-2)">Editar</button> <button class="sm" data-id="${e.id}">Excluir</button></div></div>`).join('')}
- ${l.length>10&&!showAll.d?'<button class="ghost" id="vm">Ver mais gastos</button>':''}`);
+ ${totalCount?'':'<div class="card"><p class="mu">Nenhum gasto ainda. Registre combustível, recarga ou a comida do dia.</p></div>'}
+ ${l.map(e=>`<div class="card row"><div><b style="color:var(--danger)">${brl(e.amount_cents)}</b><div class="mu">${esc(e.categories?.name||'Sem categoria')} · ${e.kind==='work'?'trabalho':'pessoal'} · ${new Date(e.spent_at).toLocaleDateString('pt-BR')}${e.source?' · '+SRC[e.source]:''}</div></div><div><button class="sm" data-ed="${e.id}" style="color:var(--text-2)">Editar</button> <button class="sm" data-id="${e.id}">Excluir</button></div></div>`).join('')}<div class="row" style="margin-top:12px"><button class="ghost" id="dp" ${page?'':'disabled'}>Anterior</button><span class="mu">Página ${page+1} de ${totalPages} · ${totalCount} registros</span><button class="ghost" id="dn" ${page+1<totalPages?'':'disabled'}>Próxima</button></div>`);
  const sync=()=>{$('#sr').value=$('#kd').value==='work'?'earnings':'personal'};sync();$('#kd').onchange=sync;
- if($('#vm'))$('#vm').onclick=()=>{showAll.d=true;despesas()};
+ $('#dp').onclick=()=>{showAll.dPage=page-1;despesas()};$('#dn').onclick=()=>{showAll.dPage=page+1;despesas()};
  $('#add').onclick=async()=>{const v=toCents($('#vl').value),k=$('#kd').value,sr=$('#sr').value;if(!v)return $('#msg').textContent='Informe o valor.';
   if(sr!=='earnings'&&bal(sr)<v&&!confirm('O saldo de '+SRC[sr]+' ('+brl(bal(sr))+') não cobre este gasto. Salvar mesmo assim?'))return;
   const n=$('#ct').value.trim(),cid=n?await cat(n,k):null,row={kind:k,category_id:cid,amount_cents:v,source:sr,spent_at:new Date(($('#ed').value||new Date().toISOString().slice(0,10))+'T12:00:00').toISOString()};
@@ -302,19 +303,20 @@ const billInfo=b=>{const t=new Date(),last=new Date(t.getFullYear(),t.getMonth()
  const st=b.paid_cents>=b.amount_cents?'paid':days<0?'late':b.paid_cents>0?'partial':'pending';
  return{days,st,lbl:{paid:'Pago',late:'Atrasado',partial:'Parcial',pending:'Pendente'}[st],cl:{paid:'var(--success)',late:'var(--danger)',partial:'var(--warning)',pending:'var(--text-2)'}[st]}};
 async function contas(){
- dataLoadError='';shell(LOADING);const l=await rows('fixed_bills',{by:'due_day'});if(dataLoadError)return shell('<h1>Contas fixas</h1>'+dataErrorCard());l.sort((a,b)=>a.due_day-b.due_day);
+ dataLoadError='';shell(LOADING);const[l,payments]=await Promise.all([rowsAll('fixed_bills',{by:'due_day'}),rowsAll('bill_payments',{by:'paid_at'})]);if(dataLoadError)return shell('<h1>Contas fixas</h1>'+dataErrorCard());l.sort((a,b)=>a.due_day-b.due_day);
  const falta=l.reduce((s,b)=>s+Math.max(b.amount_cents-b.reserved_cents-b.paid_cents,0),0);
  shell(`<h1>Contas fixas</h1><div class="card"><div class="mu">Falta juntar este mês</div><div class="big">${brl(falta)}</div></div>
  <div class="card"><input id="nm" placeholder="Nome (Parcela da moto, Internet…)"><div class="grid"><input id="vl" inputmode="decimal" placeholder="Valor (R$)"><input id="dd" inputmode="numeric" placeholder="Dia do vencimento"></div>
  <div class="msg" id="msg"></div><button id="add">Salvar conta</button></div>
  ${l.length?'':'<div class="card"><p class="mu">Nenhuma conta fixa ainda. Cadastre a parcela da moto, a internet…</p></div>'}
- ${l.map(b=>{const i=billInfo(b),A=b.amount_cents,pd=Math.min(b.paid_cents,A),rs=Math.min(b.reserved_cents,Math.max(A-pd,0)),pp=Math.round(pd*100/A),rp=Math.min(Math.round(rs*100/A),100-pp),fal=Math.max(A-b.reserved_cents-b.paid_cents,0);
+ ${l.map(b=>{const i=billInfo(b),A=b.amount_cents,pd=Math.min(b.paid_cents,A),rs=Math.min(b.reserved_cents,Math.max(A-pd,0)),pp=Math.round(pd*100/A),rp=Math.min(Math.round(rs*100/A),100-pp),fal=Math.max(A-b.reserved_cents-b.paid_cents,0),ph=payments.filter(p=>p.fixed_bill_id===b.id).slice(0,6);
  const due=i.st==='paid'?'Dia '+b.due_day:i.days<0?'Venceu dia '+b.due_day+' · há '+(-i.days)+(i.days===-1?' dia':' dias'):i.days===0?'Vence hoje':'Vence dia '+b.due_day+' · em '+i.days+(i.days===1?' dia':' dias');
  return`<div class="card" data-tg="1" style="cursor:pointer"><div class="row"><b>${esc(b.name)}</b><span style="color:${i.cl};font-size:0.8125rem;font-weight:600">${i.lbl} <span class="mu">▾</span></span></div>
  <div class="mu">${due}</div>
  <div style="display:flex;height:8px;border-radius:8px;overflow:hidden;background:var(--border);margin:12px 0 8px"><div style="width:${pp}%;background:var(--success)"></div><div style="width:${rp}%;background:var(--primary)"></div></div>
  <div class="row"><span class="mu">${i.st==='paid'?'Pago '+brl(A):brl(b.reserved_cents+b.paid_cents)+' de '+brl(A)}</span><span class="mu" style="color:var(--text)">${i.st==='paid'?'100%':fal?'Faltam '+brl(fal):'Completo'}</span></div>
  ${pd>0&&rs>0?`<div class="mu" style="font-size:0.8125rem;margin-top:6px"><span style="color:var(--success)">●</span> Pago ${brl(pd)} &nbsp; <span style="color:var(--primary)">●</span> Reservado ${brl(rs)}</div>`:''}
+ ${ph.length?`<details class="more" style="margin-top:10px"><summary>Histórico de pagamentos</summary>${ph.map(p=>`<div class="row mu"><span>${new Date(p.paid_at).toLocaleDateString('pt-BR')} · ${p.status==='paid'?'Pago':'Parcial'}</span><b>${brl(p.amount_cents)}</b></div>`).join('')}</details>`:'<div class="mu" style="margin-top:8px">Sem pagamentos históricos registrados.</div>'}
  <div class="acts" style="display:none"><div class="grid" style="margin-top:14px"><button class="ghost" data-a="r" data-id="${b.id}">Reservar</button><button data-a="p" data-id="${b.id}">Pagar</button></div>
  <div class="row" style="margin-top:12px"><button class="sm" data-a="n" data-id="${b.id}" style="color:var(--text-2)">Novo mês</button><button class="sm" data-a="d" data-id="${b.id}">Excluir</button></div></div></div>`}).join('')}`);
  $('#add').onclick=async()=>{const v=toCents($('#vl').value),d=parseInt($('#dd').value);if(!$('#nm').value||!v||!(d>=1&&d<=31))return $('#msg').textContent='Preencha nome, valor e dia (1 a 31).';
@@ -324,24 +326,23 @@ async function contas(){
   if(a==='d'){if(!confirm('Excluir conta?'))return;await sb.from('fixed_bills').delete().eq('id',id)}
   else if(a==='n'){if(!confirm('Zerar reservado e pago deste mês?'))return;await sb.from('fixed_bills').update({reserved_cents:0,paid_cents:0,status:'pending'}).eq('id',id)}
   else{const v=toCents(prompt(a==='r'?'Quanto você reservou? (R$)':'Quanto foi pago? (R$)')||'0');if(!v)return;
-   const u=a==='r'?{reserved_cents:x.reserved_cents+v}:{paid_cents:x.paid_cents+v};
-   if(a==='p')u.status=(x.paid_cents+v>=x.amount_cents)?'paid':'partial';await sb.from('fixed_bills').update(u).eq('id',id)}
+   if(a==='p'){const status=x.paid_cents+v>=x.amount_cents?'paid':'partial',when=new Date().toISOString(),cid=await cat('Contas fixas','personal'),er=await sb.from('expenses').insert({kind:'personal',category_id:cid,amount_cents:v,source:'bills',spent_at:when}).select('id').single();if(er.error)return toast('Não foi possível registrar o pagamento.');const pr=await sb.from('bill_payments').insert({user_id:user.id,fixed_bill_id:id,expense_id:er.data.id,amount_cents:v,paid_at:when,status}).select('id').single();if(pr.error){await sb.from('expenses').delete().eq('id',er.data.id);return toast('Não foi possível registrar o pagamento.')}const ur=await sb.from('fixed_bills').update({paid_cents:x.paid_cents+v,status}).eq('id',id);if(ur.error){await sb.from('bill_payments').delete().eq('id',pr.data.id);await sb.from('expenses').delete().eq('id',er.data.id);return toast('Não foi possível atualizar a conta.')}}else{const ur=await sb.from('fixed_bills').update({reserved_cents:x.reserved_cents+v}).eq('id',id);if(ur.error)return toast('Não foi possível atualizar a reserva.')}}
   contas()})}
 
 const BK={bills:'Contas fixas',personal:'Pessoal',reserve:'Reserva',cdb:'CDB'};
 async function dinheiro(){
- dataLoadError='';shell(LOADING);
- const[dp,wd,all,ex,{data:p},{data:goals}]=await Promise.all([rows('deposits',{by:'deposited_at'}),rows('withdrawals',{by:'withdrawn_at'}),loadEarnings(),rows('expenses',{by:'spent_at'}),sb.from('profiles').select('*').single(),sb.from('goals').select('id,title').order('created_at',{ascending:false}).limit(100)]);
+ dataLoadError='';shell(LOADING);const page=showAll.mPage||0;
+ const[dpAll,wd,all,ex,{data:p},{data:goals}]=await Promise.all([rowsAll('deposits',{by:'deposited_at'}),rowsAll('withdrawals',{by:'withdrawn_at'}),loadEarningsAll(),rowsAll('expenses',{by:'spent_at'}),sb.from('profiles').select('*').single(),sb.from('goals').select('id,title').order('created_at',{ascending:false}).range(0,99)]);const dp=dpAll.slice(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE);
  if(dataLoadError)return shell('<h1>Dinheiro</h1>'+dataErrorCard());
  const gm=sum(all.filter(e=>inMonth(e.earned_at))).t,wm=sumC(ex.filter(e=>e.kind==='work'&&inMonth(e.spent_at)));
  const base=p?.split_base==='net'?Math.max(gm-wm,0):gm,pc={b:+(p?.split_bills_pct??50),p:+(p?.split_personal_pct??30),r:+(p?.split_reserve_pct??20)};
- const pm=sumC(ex.filter(e=>e.kind==='personal'&&inMonth(e.spent_at))),bal=balOf(dp,wd,ex),sm=k=>sumC(ex.filter(e=>e.source===k&&inMonth(e.spent_at))),dm=k=>sumC(dp.filter(x=>x.bucket===k&&inMonth(x.deposited_at)));
+ const pm=sumC(ex.filter(e=>e.kind==='personal'&&inMonth(e.spent_at))),bal=balOf(dpAll,wd,ex),sm=k=>sumC(ex.filter(e=>e.source===k&&inMonth(e.spent_at))),dm=k=>sumC(dpAll.filter(x=>x.bucket===k&&inMonth(x.deposited_at)));
  const m=c=>(c/100).toFixed(2).replace('.',','),rec=pc2=>Math.round(base*pc2/100);
  let useCdb=true;try{useCdb=localStorage.getItem('rodda_cdb')!=='0'}catch(e){}
  // histórico agrupado: um depósito automático vira um único cartão com a divisão
  const G={};[...dp.map(x=>({...x,t:'Depósito',tb:'deposits',d:x.deposited_at})),...wd.map(x=>({...x,t:'Retirada',tb:'withdrawals',d:x.withdrawn_at}))].forEach(x=>{
   const k=x.tb+'|'+String(x.d).slice(0,19);const g=G[k]=G[k]||{t:x.t,tb:x.tb,d:x.d,ids:[],parts:{},total:0};g.ids.push(x.id);g.parts[x.bucket]=(g.parts[x.bucket]||0)+x.amount_cents;g.total+=x.amount_cents});
- const hist=Object.values(G).sort((a,b)=>new Date(b.d)-new Date(a.d)),vis=showAll.m?hist:hist.slice(0,5);
+ const hist=Object.values(G).sort((a,b)=>new Date(b.d)-new Date(a.d)),totalPages=Math.max(1,Math.ceil(dpAll.length/PAGE_SIZE));
  shell(`<h1>Dinheiro</h1><div class="card"><div class="mu">Saldo disponível</div><br>
  ${[['Reservado para contas fixas',['bills','cdb']],['Pessoal',['personal']],['Reserva',['reserve']]].map(([n,ks])=>{const sd=ks.reduce((a,k)=>a+bal(k),0),gs=ks.reduce((a,k)=>a+sm(k),0);
   return`<div style="margin-bottom:14px"><div class="row"><span>${n}</span><b style="font-size:1.125rem;color:${sd<0?'var(--danger)':'var(--text)'}">${brl(sd)}</b></div><div class="mu" style="font-size:0.8125rem;margin-top:4px">Gastos no mês −${brl(gs)}${ks.length>1?' · CDB '+brl(bal('cdb'))+' · Em conta '+brl(bal('bills')):''}</div></div>`}).join('')}</div>
@@ -357,10 +358,10 @@ async function dinheiro(){
  <div id="pv">${Object.keys(BK).map(k=>`<div class="row" style="margin-bottom:8px"><span class="mu" style="flex:1">${BK[k]}</span><input data-b="${k}" inputmode="decimal" placeholder="0,00" style="width:8.5rem;margin:0;text-align:right"></div>`).join('')}<div class="row" style="margin-bottom:10px"><span class="mu">Total</span><b id="tt">R$ 0,00</b></div></div>
  <div class="msg" id="msg"></div><button id="add">Registrar</button></div></div>
  ${hist.length?'':'<div class="card"><p class="mu">Nenhum depósito ainda. Digite o valor que você guardou e o app divide para você.</p></div>'}
- ${vis.map(g=>`<div class="card"><div class="row"><div><b style="color:${g.t==='Retirada'?'var(--danger)':'var(--success)'}">${g.t==='Retirada'?'−':'+'}${brl(g.total)}</b><div class="mu">${g.t} · ${new Date(g.d).toLocaleDateString('pt-BR')}</div></div><button class="sm" data-ids="${g.ids.join(',')}" data-tb="${g.tb}">Excluir</button></div>
+ ${hist.map(g=>`<div class="card"><div class="row"><div><b style="color:${g.t==='Retirada'?'var(--danger)':'var(--success)'}">${g.t==='Retirada'?'−':'+'}${brl(g.total)}</b><div class="mu">${g.t} · ${new Date(g.d).toLocaleDateString('pt-BR')}</div></div><button class="sm" data-ids="${g.ids.join(',')}" data-tb="${g.tb}">Excluir</button></div>
  <div class="mu" style="margin-top:8px">${Object.entries(g.parts).map(([k,v])=>BK[k]+' '+brl(v)).join(' · ')}</div></div>`).join('')}
- ${hist.length>5&&!showAll.m?'<button class="ghost" id="vm">Ver mais</button>':''}`);
- $('#tg').onclick=()=>{const f=$('#fm');f.style.display=f.style.display==='none'?'block':'none'};if($('#vm'))$('#vm').onclick=()=>{showAll.m=true;dinheiro()};
+ <div class="row" style="margin-top:12px"><button class="ghost" id="mp" ${page?'':'disabled'}>Anterior</button><span class="mu">Página ${page+1} de ${totalPages} · ${dpAll.length} depósitos</span><button class="ghost" id="mn" ${page+1<totalPages?'':'disabled'}>Próxima</button></div>`);
+ $('#tg').onclick=()=>{const f=$('#fm');f.style.display=f.style.display==='none'?'block':'none'};$('#mp').onclick=()=>{showAll.mPage=page-1;dinheiro()};$('#mn').onclick=()=>{showAll.mPage=page+1;dinheiro()};
  const inputs=()=>[...document.querySelectorAll('#pv input')];
  const upd=()=>{const dep=$('#tp').value==='deposits',auto=$('#md').value==='auto';
   const se=(i,on,d='')=>{const e=$(i),t=e.closest('.fld')||e;t.style.display=on?d:'none'};se('#md',dep);se('#goal',dep);se('#bk',!dep);se('#pv',dep);se('#cw',dep&&auto,'block');se('#vl',!(dep&&!auto));
@@ -378,7 +379,7 @@ async function dinheiro(){
   const{error}=await sb.from('withdrawals').insert({bucket:$('#bk').value,amount_cents:v});if(error)return $('#msg').textContent=error.message;toast('Retirada salva ✓');dinheiro()};
  document.querySelectorAll('button.sm[data-ids]').forEach(b=>b.onclick=async()=>{if(confirm('Excluir este registro?')){await sb.from(b.dataset.tb).delete().in('id',b.dataset.ids.split(','));dinheiro()}})}
 async function metas(){
- dataLoadError='';shell(LOADING);const[l,dp]=await Promise.all([rows('goals'),rows('deposits',{by:'deposited_at'})]);if(dataLoadError)return shell('<h1>Metas</h1>'+dataErrorCard());const linked=dp.reduce((a,d)=>{if(d.goal_id)a[d.goal_id]=(a[d.goal_id]||0)+d.amount_cents;return a},{});
+ dataLoadError='';shell(LOADING);const[l,dp]=await Promise.all([rowsAll('goals'),rowsAll('deposits',{by:'deposited_at'})]);if(dataLoadError)return shell('<h1>Metas</h1>'+dataErrorCard());const linked=dp.reduce((a,d)=>{if(d.goal_id)a[d.goal_id]=(a[d.goal_id]||0)+d.amount_cents;return a},{});
  shell(`<h1>Metas</h1><div class="card"><input id="tt" placeholder="Meta (Juntar R$ 500, Parcela da moto…)"><div class="grid"><input id="vl" inputmode="decimal" placeholder="Valor (R$)"><input id="dl" type="date"></div>
  <div class="msg" id="msg"></div><button id="add">Criar meta</button></div>
  ${l.length?'':'<div class="card"><p class="mu">Nenhuma meta ainda. Crie uma meta para acompanhar quanto falta.</p></div>'}
@@ -559,7 +560,7 @@ const N_=s=>parseFloat(String(s||'').replace(',','.'));
 
 async function desempenho(){
  dataLoadError='';shell(LOADING);
- const daysBack=showAll.performanceDays||30,l=(await loadEarnings()).filter(e=>new Date(e.earned_at)>=new Date(Date.now()-daysBack*864e5));
+ const daysBack=showAll.performanceDays||30,l=(await loadEarningsAll()).filter(e=>new Date(e.earned_at)>=new Date(Date.now()-daysBack*864e5));
  if(dataLoadError)return shell('<h1>Análises</h1>'+dataErrorCard());
  if(!l.length)return shell(SEG('desempenho')+'<div class="card"><b>Sem dados ainda</b><p class="mu">Registre ganhos (com entregas e minutos) para ver sua análise. Nada aqui é inventado: tudo vem dos seus registros.</p></div>');
  const days=new Set(l.map(e=>new Date(e.earned_at).toLocaleDateString('pt-BR'))),S=sum(l);
@@ -588,22 +589,22 @@ function onboarding(){
  $('#ok').onclick=()=>fim(true);$('#sk').onclick=()=>fim(false)}
 
 async function relatorios(){
- dataLoadError='';shell(LOADING);const[all,ex,dp,bills]=await Promise.all([loadEarnings(),rows('expenses',{by:'spent_at'}),rows('deposits',{by:'deposited_at'}),rows('fixed_bills')]);if(dataLoadError)return shell('<h1>Relatórios</h1>'+dataErrorCard());
+ dataLoadError='';shell(LOADING);const[all,ex,dp,bills]=await Promise.all([loadEarningsAll(),rowsAll('expenses',{by:'spent_at'}),rowsAll('deposits',{by:'deposited_at'}),rowsAll('fixed_bills')]);if(dataLoadError)return shell('<h1>Relatórios</h1>'+dataErrorCard());
  const now=new Date(),M=[],D=[],tm=x=>new Date(x),inR=(x,a,b)=>{const t=tm(x);return t>=a&&t<b};
- const start=new Date(now.getFullYear(),now.getMonth(),now.getDate()-6),prevStart=new Date(start.getFullYear(),start.getMonth(),start.getDate()-7),prevEnd=new Date(start),end=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1),weekE=all.filter(x=>inR(x.earned_at,start,end)),prevE=all.filter(x=>inR(x.earned_at,prevStart,prevEnd)),weekX=ex.filter(x=>x.kind==='work'&&inR(x.spent_at,start,end)),prevX=ex.filter(x=>x.kind==='work'&&inR(x.spent_at,prevStart,prevEnd)),weekD=dp.filter(x=>inR(x.deposited_at,start,end)&&['bills','reserve','cdb'].includes(x.bucket));
+ const customRange=showAll.reportStart&&showAll.reportEnd,reportDays=customRange?Math.max(1,Math.ceil((new Date(showAll.reportEnd+'T00:00:00')-new Date(showAll.reportStart+'T00:00:00'))/864e5)+1):(showAll.reportDays||7),start=customRange?new Date(showAll.reportStart+'T00:00:00'):new Date(now.getFullYear(),now.getMonth(),now.getDate()-(reportDays-1)),prevStart=new Date(start.getFullYear(),start.getMonth(),start.getDate()-reportDays),prevEnd=new Date(start),end=customRange?new Date(new Date(showAll.reportEnd+'T00:00:00').getTime()+864e5):new Date(now.getFullYear(),now.getMonth(),now.getDate()+1),weekE=all.filter(x=>inR(x.earned_at,start,end)),prevE=all.filter(x=>inR(x.earned_at,prevStart,prevEnd)),weekX=ex.filter(x=>x.kind==='work'&&inR(x.spent_at,start,end)),prevX=ex.filter(x=>x.kind==='work'&&inR(x.spent_at,prevStart,prevEnd)),weekD=dp.filter(x=>inR(x.deposited_at,start,end)&&['bills','reserve','cdb'].includes(x.bucket));
  const wg=sum(weekE).t,wx=sumC(weekX),wp=wg-wx,pg=sum(prevE).t,px=sumC(prevX),pp=pg-px,dayTotals=Array.from({length:7},(_,i)=>{const a=new Date(start.getFullYear(),start.getMonth(),start.getDate()+i),b=new Date(+a+864e5);return{d:a,v:sum(weekE.filter(x=>inR(x.earned_at,a,b))).t}}).filter(x=>x.v>0),best=dayTotals.length?dayTotals.reduce((a,b)=>b.v>a.v?b:a):null,worst=dayTotals.length?dayTotals.reduce((a,b)=>b.v<a.v?b:a):null,pct=(a,b)=>b?Math.round((a-b)*100/b):null,gd=pct(wg,pg),pd=pct(wp,pp),diag=!weekE.length?'Ainda não há dados suficientes para um diagnóstico semanal.':gd===null?'Há dados nesta semana, mas não há semana anterior suficiente para comparação.':`Seu faturamento ${gd>=0?'aumentou':'caiu'} ${Math.abs(gd)}% em relação à semana anterior${pd!==null?`, e seu lucro operacional ${pd>=0?'aumentou':'caiu'} ${Math.abs(pd)}%`:''}.`;
  for(let i=5;i>=0;i--){const a=new Date(now.getFullYear(),now.getMonth()-i,1),b=new Date(a.getFullYear(),a.getMonth()+1,1);
   const g=sum(all.filter(x=>inR(x.earned_at,a,b))).t,w=sumC(ex.filter(x=>x.kind==='work'&&inR(x.spent_at,a,b)));M.push({l:a.toLocaleDateString('pt-BR',{month:'short'}).replace('.',''),g,w,p:g-w})}
- for(let i=6;i>=0;i--){const a=new Date(now.getFullYear(),now.getMonth(),now.getDate()-i),b=new Date(+a+864e5);D.push({l:a.toLocaleDateString('pt-BR',{weekday:'short'}).replace('.',''),g:sum(all.filter(x=>inR(x.earned_at,a,b))).t})}
+ for(let i=reportDays-1;i>=0;i--){const a=new Date(now.getFullYear(),now.getMonth(),now.getDate()-i),b=new Date(+a+864e5);D.push({l:reportDays<=7?a.toLocaleDateString('pt-BR',{weekday:'short'}).replace('.',''):a.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}),g:sum(all.filter(x=>inR(x.earned_at,a,b))).t})}
  const bars=(arr,k)=>{const mx=Math.max(1,...arr.map(a=>a[k]));return`<div role="img" aria-label="${arr.map(a=>a.l+': '+brl(a[k])).join('; ')}" style="display:flex;gap:6px;align-items:flex-end;height:130px">${arr.map(a=>`<div aria-hidden="true" style="flex:1;text-align:center"><div class="mu" style="font-size:0.8125rem">${a[k]?Math.round(a[k]/100):''}</div><div class="bar" style="background:var(--success);border-radius:6px 6px 0 0;height:${Math.round(a[k]/mx*90)}px;min-height:2px"></div><div class="mu" style="font-size:0.8125rem">${a.l}</div></div>`).join('')}</div>`};
  const c=M[5],p=M[4],dl=p.g?Math.round((c.g-p.g)*100/p.g):null;
- shell(`${SEG('relatorios')}<h2>Resumo semanal</h2><div class="grid"><div class="card"><div class="mu">Faturamento bruto</div><b>${brl(wg)}</b></div><div class="card"><div class="mu">Gastos operacionais</div><b style="color:var(--danger)">${brl(wx)}</b></div><div class="card"><div class="mu">Lucro operacional</div><b style="color:${wp<0?'var(--danger)':'var(--success)'}">${brl(wp)}</b></div><div class="card"><div class="mu">Valor reservado</div><b>${brl(sumC(weekD))}</b></div></div>
+ shell(`${SEG('relatorios')}<div class="seg" aria-label="Período"><button data-report-days="7" class="${!customRange&&reportDays===7?'on':''}">Semana</button><button data-report-days="30" class="${!customRange&&reportDays===30?'on':''}">Mês</button><button data-report-days="90" class="${!customRange&&reportDays===90?'on':''}">90 dias</button></div><div class="grid"><input id="rs" type="date" value="${showAll.reportStart||new Date(now.getFullYear(),now.getMonth(),now.getDate()-6).toISOString().slice(0,10)}"><input id="re" type="date" value="${showAll.reportEnd||now.toISOString().slice(0,10)}"><button class="ghost" id="rc">Aplicar período personalizado</button></div><h2>Resumo do período</h2><div class="grid"><div class="card"><div class="mu">Faturamento bruto</div><b>${brl(wg)}</b></div><div class="card"><div class="mu">Gastos operacionais</div><b style="color:var(--danger)">${brl(wx)}</b></div><div class="card"><div class="mu">Lucro operacional</div><b style="color:${wp<0?'var(--danger)':'var(--success)'}">${brl(wp)}</b></div><div class="card"><div class="mu">Valor reservado</div><b>${brl(sumC(weekD))}</b></div></div>
  <div class="card"><b>Diagnóstico</b><p class="mu">${diag}</p>${best?`<div class="mu">Melhor dia: ${best.d.toLocaleDateString('pt-BR',{weekday:'long'})} · ${brl(best.v)}</div>`:''}${worst&&worst!==best?`<div class="mu">Pior dia com registros: ${worst.d.toLocaleDateString('pt-BR',{weekday:'long'})} · ${brl(worst.v)}</div>`:''}</div>
  <div class="card"><div class="row"><span>Contas pagas</span><b>${bills.filter(b=>b.paid_cents>=b.amount_cents).length}</b></div><div class="row"><span>Contas pendentes</span><b>${bills.filter(b=>b.paid_cents<b.amount_cents).length}</b></div><div class="mu">Base: registros disponíveis no período atual.</div></div>
- <h2>Ganhos dos últimos 7 dias (R$)</h2><div class="card">${bars(D,'g')}</div>
+ <h2>Ganhos dos últimos ${reportDays} dias (R$)</h2><div class="card">${bars(D,'g')}</div>
  <h2>Ganhos por mês (R$)</h2><div class="card">${bars(M,'g')}</div>
  <h2>Este mês × mês anterior</h2><div class="card"><div class="row"><span>Ganhos</span><b>${brl(c.g)}</b></div><div class="mu">${dl===null?'Sem dados do mês anterior':(dl>=0?'+':'')+dl+'% em relação a '+brl(p.g)}</div></div>
- <h2>Resumo mensal</h2>${M.slice().reverse().map(m=>`<div class="card"><div class="row"><b>${m.l}</b><b style="color:${m.p<0?'var(--danger)':'var(--success)'}">${brl(m.p)}</b></div><div class="mu">Ganhos ${brl(m.g)} · Gastos do trabalho ${brl(m.w)}</div></div>`).join('')}<p class="mu">Lucro = ganhos − despesas do trabalho. Valores calculados dos seus registros.</p>`)}
+ <h2>Resumo mensal</h2>${M.slice().reverse().map(m=>`<div class="card"><div class="row"><b>${m.l}</b><b style="color:${m.p<0?'var(--danger)':'var(--success)'}">${brl(m.p)}</b></div><div class="mu">Ganhos ${brl(m.g)} · Gastos do trabalho ${brl(m.w)}</div></div>`).join('')}<p class="mu">Lucro = ganhos − despesas do trabalho. Valores calculados dos seus registros.</p>`);document.querySelectorAll('[data-report-days]').forEach(b=>b.onclick=()=>{showAll.reportDays=+b.dataset.reportDays;showAll.reportStart=null;showAll.reportEnd=null;relatorios()});$('#rc').onclick=()=>{const a=$('#rs').value,b=$('#re').value;if(!a||!b||a>b)return toast('Informe um intervalo válido.');showAll.reportStart=a;showAll.reportEnd=b;relatorios()}}
 
 async function perfil(){
  shell(LOADING);const[{data:p},{data:pls}]=await Promise.all([sb.from('profiles').select('*').single(),sb.from('platforms').select('name')]),v=c=>c?(c/100).toFixed(2).replace('.',','):'';const saved=platformNames(p),selected=saved.length?saved:(pls||[]).map(x=>x.name).filter(n=>DELIVERY_PLATFORMS.some(([x])=>x===n));
