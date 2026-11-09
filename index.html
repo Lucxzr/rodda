@@ -118,13 +118,47 @@ const sb=supabase.createClient('https://hcvkhqnpuukczczdmvrz.supabase.co','sb_pu
 const $=s=>document.querySelector(s),app=$('#app');
 const brl=c=>(c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const toCents=v=>Math.round(parseFloat(String(v).replace(/\./g,'').replace(',','.')||'0')*100);
-const esc=s=>String(s??'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
-let tab='inicio',user=null,mode='login',ob=null,editId=null,showAll={};
+const esc=s=>String(s??'').replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]));
+const PROD_URL='https://rodda-nu.vercel.app';
+const authUrl=()=>location.hostname==='rodda-nu.vercel.app'?PROD_URL:location.origin;
+const authRedirect=()=>`${authUrl()}/?auth=confirmed`;
+let tab='inicio',user=null,mode='login',ob=null,editId=null,showAll={},authBusy=false;
 
-async function boot(){const{data}=await sb.auth.getSession();user=data.session?.user||null;render()}
+function authErrorMessage(v){return decodeURIComponent(String(v||'')).replace(/[+]/g,' ')||'Não foi possível confirmar seu e-mail.'}
+function authReturn(){
+ const q=new URLSearchParams(location.search),h=new URLSearchParams(location.hash.replace(/^#/,'').replace(/^\?/,''));
+ return{q,h,hasReturn:q.has('auth')||q.has('code')||q.has('token_hash')||q.has('error')||h.has('access_token')||h.has('error')}
+}
+async function processAuthReturn(){
+ const {q,h,hasReturn}=authReturn();if(!hasReturn)return null;
+ if(q.get('error')||h.get('error'))return{state:'error',message:authErrorMessage(q.get('error_description')||h.get('error_description')||q.get('error_code')||h.get('error_code'))};
+ if(q.get('token_hash')&&q.get('type')){
+  const{data,error}=await sb.auth.verifyOtp({token_hash:q.get('token_hash'),type:q.get('type')});
+  if(error||!data?.session)return{state:'error',message:error?.message||'Não foi possível estabelecer a sessão.'};
+  history.replaceState({},document.title,`${authUrl()}/?auth=confirmed`);return{state:'success'}
+ }
+ if(q.get('code')){
+  const{data,error}=await sb.auth.exchangeCodeForSession(q.get('code'));
+  if(error||!data?.session)return{state:'error',message:error?.message||'Não foi possível estabelecer a sessão.'};
+  history.replaceState({},document.title,`${authUrl()}/?auth=confirmed`);return{state:'success'}
+ }
+ if(h.get('access_token')){history.replaceState({},document.title,`${authUrl()}/?auth=confirmed`);return{state:'processing'}}
+ return{state:'processing'}
+}
+async function boot(){
+ const ret=await processAuthReturn();
+ if(ret){authBusy=true;authView(ret.state==='success'?'E-mail confirmado com sucesso!':ret.state==='error'?ret.message:'Estamos confirmando seu e-mail...',ret.state);if(ret.state==='processing'){await new Promise(r=>setTimeout(r,900));const{data}=await sb.auth.getSession();user=data.session?.user||null;authBusy=false;authView(user?'E-mail confirmado com sucesso!':'Não foi possível concluir a confirmação.',user?'success':'error')}return}
+ const{data}=await sb.auth.getSession();user=data.session?.user||null;render()
+}
 sb.auth.onAuthStateChange((_e,s)=>{user=s?.user||null});
 
-function authView(msg=''){ob=null;
+function authView(msg='',state=''){ob=null;
+ const success=state==='success',error=state==='error';
+ if(success||error){app.innerHTML=`<div class="brand"><img class="logo" src="icon-192.png" alt=""><span class="wm">RODDA</span></div><div class="card"><h1>${success?'E-mail confirmado com sucesso!':'Link inválido ou expirado'}</h1><p class="${success?'ok':'msg'}">${success?'Sua conta RODDA está pronta para ser utilizada.':esc(msg||'Não foi possível confirmar seu e-mail. Solicite um novo link e tente novamente.')}</p>${success?'<button id="access">Acessar minha conta</button>':'<button id="retry">Tentar novamente</button>'}</div>${!success?'<div class="card"><p class="mu">Não recebeu o e-mail?</p><input id="resendEmail" type="email" placeholder="E-mail" autocomplete="email"><div class="msg" id="resendMsg"></div><button class="ghost" id="resend">Reenviar confirmação</button></div>':''}${a11yPanel()}`;
+  if(success)$('#access').onclick=()=>{history.replaceState({},document.title,`${authUrl()}/`);authBusy=false;render()};
+  if(error){$('#retry').onclick=()=>{history.replaceState({},document.title,`${authUrl()}/`);authBusy=false;mode='login';authView()};$('#resend').onclick=()=>resendConfirmation($('#resendEmail').value,$('#resendMsg'))}
+  a11yBind();return
+ }
  app.innerHTML=`<div class="brand"><img class="logo" src="icon-192.png" alt=""><span class="wm">RODDA</span></div><p class="mu">Gestão inteligente para quem vive do corre.</p>
  <div class="card">${mode==='signup'?'<input id="nm" placeholder="Seu nome" autocomplete="name">':''}
  <input id="em" type="email" placeholder="E-mail" autocomplete="email">
@@ -132,16 +166,19 @@ function authView(msg=''){ob=null;
  <div class="msg" id="msg">${msg}</div>
  <button id="go">${mode==='login'?'Entrar':'Criar conta'}</button><br><br>
  <button class="ghost" id="sw">${mode==='login'?'Criar conta nova':'Já tenho conta'}</button>
+ ${mode==='login'?'<button class="ghost" id="re" style="margin-top:.5rem">Não recebeu o e-mail? Reenviar confirmação</button>':''}
  ${mode==='login'?'<p class="mu" style="text-align:center" id="fg">Esqueci a senha</p>':''}</div><p class="mu" style="text-align:center">Ao usar o RODDA você concorda com os <a id="tm" style="color:var(--primary)">Termos</a> e a <a id="pv" style="color:var(--primary)">Política de Privacidade</a>.</p>${a11yPanel()}`;
  $('#sw').onclick=()=>{mode=mode==='login'?'signup':'login';authView()};$('#tm').onclick=()=>doc('termos');$('#pv').onclick=()=>doc('privacidade');a11yBind();
  const fg=$('#fg');if(fg)fg.onclick=async()=>{const e=$('#em').value;if(!e)return $('#msg').textContent='Digite seu e-mail primeiro.';
-  const{error}=await sb.auth.resetPasswordForEmail(e,{redirectTo:location.origin});$('#msg').textContent=error?error.message:'Enviamos um link para seu e-mail.'};
+  const{error}=await sb.auth.resetPasswordForEmail(e,{redirectTo:authRedirect()});$('#msg').textContent=error?error.message:'Enviamos um link para seu e-mail.'};
+ const re=$('#re');if(re)re.onclick=()=>resendConfirmation($('#em').value,$('#msg'));
  $('#go').onclick=async()=>{const email=$('#em').value.trim(),password=$('#pw').value;$('#msg').textContent='';
-  const r=mode==='login'?await sb.auth.signInWithPassword({email,password}):await sb.auth.signUp({email,password,options:{data:{full_name:$('#nm').value}}});
-  if(r.error)return $('#msg').textContent=r.error.message;
+  const r=mode==='login'?await sb.auth.signInWithPassword({email,password}):await sb.auth.signUp({email,password,options:{emailRedirectTo:authRedirect(),data:{full_name:$('#nm').value}}});
+  if(r.error){const unconfirmed=/not confirmed|email not confirmed/i.test(r.error.message);$('#msg').textContent=unconfirmed?'Seu e-mail ainda não foi confirmado. Use o botão abaixo para reenviar o link.':r.error.message;return}
   const{data}=await sb.auth.getSession();user=data.session?.user||null;
-  if(!user)return $('#msg').textContent='Conta criada. Confirme seu e-mail e entre.';render()};
-}
+  if(!user)return $('#msg').textContent='Conta criada. Confirme seu e-mail e entre. Se não receber, use o botão de reenvio.';render()};
+ }
+async function resendConfirmation(email,el){email=String(email||'').trim();if(!email)return el.textContent='Digite seu e-mail primeiro.';el.textContent='Enviando...';const{error}=await sb.auth.resend({type:'signup',email,options:{emailRedirectTo:authRedirect()}});el.textContent=error?'Não foi possível reenviar agora. Tente novamente em instantes.':'Se houver uma conta pendente, um novo e-mail foi enviado.'}
 
 function shell(html){app.innerHTML=html+'<nav aria-label="Menu principal"><div class="navbrand"><img class="logo" src="icon-192.png" alt=""><span class="wm">RODDA</span></div>'+TABS.map(([k,l])=>{const on=tab===k||(k==='mais'&&SUB.includes(tab));return`<a href="#${k}" data-t="${k}" class="${on?'on':''}"${on?' aria-current="page"':''}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${IC[k]}</svg><span>${l}</span></a>`}).join('')+'</nav>';
  document.querySelectorAll('nav a').forEach(a=>a.onclick=e=>{e.preventDefault();tab=a.dataset.t;scrollTo(0,0);render()});
