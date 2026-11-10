@@ -2,7 +2,7 @@
 <html lang="pt-BR"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#111315">
+<meta name="theme-color" content="#101418">
 <meta name="color-scheme" content="dark">
 <meta name="apple-mobile-web-app-title" content="RODDA">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -17,12 +17,12 @@
 /* ===== RODDA Design System — Dark Professional (responsivo + acessível) ===== */
 :root{color-scheme:dark;
  /* cores da identidade */
- --bg:#111315;--surface:#1C2024;--surface-elevated:#262B30;--border:#3A4148;
- --primary:#78A9D1;--accent:#A8C98A;--on-primary:#111315;
- --text:#F4F5F6;--text-2:#B4BBC2;
- --success:#A8C98A;--danger:#D98989;--warning:#D6AD70;
+ --bg:#101418;--surface:#1B222B;--surface-elevated:#303944;--border:#303944;
+ --primary:#438BCE;--accent:#C5F36B;--on-primary:#101418;
+ --text:#F1F3F5;--text-2:#8995A3;
+ --success:#22C55E;--danger:#F87171;--warning:#FBBF24;
  /* acessibilidade: borda de controles com contraste >= 3:1 (WCAG 1.4.11) */
- --control:#3A4148;
+ --control:#303944;
  /* forma, espaço, tipografia, movimento */
  --r-md:.65rem;--r-lg:.85rem;--s-1:.25rem;--s-2:.5rem;--s-3:.75rem;--s-4:1rem;--s-5:1.5rem;
  --font:"Inter",-apple-system,BlinkMacSystemFont,system-ui,"Segoe UI",Roboto,sans-serif;--font-display:"Space Grotesk",Inter,sans-serif;--font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,monospace;
@@ -54,7 +54,7 @@ a{color:var(--primary);cursor:pointer;text-decoration:underline;text-underline-o
 .fld{min-width:0;flex:1}.fl{display:block;font-size:var(--fs-sm);color:var(--text-2);margin:0 0 .3rem}
 input,select{width:100%;min-width:0;background:var(--bg);color:var(--text);border:1px solid var(--control);border-radius:var(--r-md);padding:.8rem .9rem;font:inherit;margin-bottom:.625rem;min-height:2.75rem;appearance:none;-webkit-appearance:none;transition:border-color var(--dur),box-shadow var(--dur)}
 input::placeholder{color:var(--text-2)}
- input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 .1875rem rgba(120,169,209,.35)}
+ input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 .1875rem rgba(67,139,206,.35)}
  select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%238995A3' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .9rem center;padding-right:2.4rem}
 input[type=checkbox]{width:1.4rem!important;height:1.4rem;min-height:0;margin:0 .75rem 0 0!important;flex:none;appearance:auto;-webkit-appearance:checkbox;accent-color:var(--primary)}
 .chk{display:flex;align-items:center;min-height:2.75rem;color:var(--text);font-size:var(--fs-md)}
