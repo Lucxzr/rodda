@@ -125,12 +125,16 @@ html.rm *,html.rm *::before,html.rm *::after{animation-duration:.01ms!important;
 const sb=supabase.createClient('https://hcvkhqnpuukczczdmvrz.supabase.co','sb_publishable_BKP9I9BT8KMy3-9G-Cy-9w_gILyddVC');
 const $=s=>document.querySelector(s),app=$('#app');
 const brl=c=>(c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-const toCents=v=>{let s=String(v??'').trim().replace(/[^\d,.-]/g,'');if(!s)return 0;const neg=s.startsWith('-');s=s.replace(/^-/, '');if(s.includes(',')&&s.includes('.'))s=s.lastIndexOf(',')>s.lastIndexOf('.')?s.replace(/\./g,'').replace(',','.'):s.replace(/,/g,'');else if(s.includes(','))s=s.replace(',','.');const n=Number.parseFloat(s);return Number.isFinite(n)?(neg?-1:1)*Math.round(n*100):0};
+const dateAtNoon=d=>new Date(`${d||new Date().toISOString().slice(0,10)}T12:00:00`).toISOString();
+const parseMoney=v=>{let s=String(v??'').trim().replace(/\s/g,'');if(!s)return{cents:0,valid:false};const neg=s.startsWith('-');s=s.replace(/^-/, '');if(!/^\d[\d.,]*$/.test(s))return{cents:0,valid:false};if(s.includes(',')&&s.includes('.'))s=s.lastIndexOf(',')>s.lastIndexOf('.')?s.replace(/\./g,'').replace(',','.'):s.replace(/,/g,'');else if(s.includes(','))s=s.replace(',','.');else if((s.match(/\./g)||[]).length>1)s=s.replace(/\./g,'');const n=Number(s);return Number.isFinite(n)&&n>=0?{cents:(neg?-1:1)*Math.round(n*100),valid:true}:{cents:0,valid:false}};
+const toCents=v=>parseMoney(v).cents;
 const esc=s=>String(s??'').replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]));
 const PROD_URL='https://rodda-nu.vercel.app';
 const authUrl=()=>location.hostname==='rodda-nu.vercel.app'?PROD_URL:location.origin;
 const authRedirect=()=>`${authUrl()}/?auth=confirmed`;
-let tab='inicio',user=null,mode='login',ob=null,editId=null,showAll={},authBusy=false,dataLoadError='';
+let tab='inicio',user=null,mode='login',ob=null,editId=null,showAll={},authBusy=false,dataLoadError='',schemaReady=null;
+const EXPECTED_SCHEMA='e0-e3-2026-11-16';
+async function checkSchema(){const{data,error}=await sb.from('schema_migrations').select('version').eq('version',EXPECTED_SCHEMA).maybeSingle();schemaReady=!error&&!!data;return schemaReady}
 
 function authErrorMessage(v){return decodeURIComponent(String(v||'')).replace(/[+]/g,' ')||'Não foi possível confirmar seu e-mail.'}
 function authReturn(){
@@ -156,7 +160,7 @@ async function processAuthReturn(){
 async function boot(){
  const ret=await processAuthReturn();
  if(ret){authBusy=true;authView(ret.state==='success'?'E-mail confirmado com sucesso!':ret.state==='error'?ret.message:'Estamos confirmando seu e-mail...',ret.state);if(ret.state==='processing'){await new Promise(r=>setTimeout(r,900));const{data}=await sb.auth.getSession();user=data.session?.user||null;authBusy=false;authView(user?'E-mail confirmado com sucesso!':'Não foi possível concluir a confirmação.',user?'success':'error')}return}
- const{data}=await sb.auth.getSession();user=data.session?.user||null;render()
+ const{data}=await sb.auth.getSession();user=data.session?.user||null;if(user)await checkSchema();render()
 }
 sb.auth.onAuthStateChange((_e,s)=>{user=s?.user||null});
 
@@ -206,6 +210,8 @@ async function loadEarningsAll(){const out=[];for(let page=0;;page++){const{data
 async function render(){
  if(tab!==prevTab){navFocus=true;prevTab=tab}
  if(!user)return authView();
+ if(schemaReady===null)await checkSchema();
+ if(!schemaReady){setLayoutMode(false);app.innerHTML='<div class="brand"><img class="logo" src="icon-192.png" alt="RODDA"><span class="wm">RODDA</span></div><div class="card"><h1>Atualização necessária</h1><p class="msg">O banco de dados não está na versão compatível com este aplicativo.</p><p class="mu">Nenhuma migração foi executada automaticamente. Atualize o schema no Supabase e tente novamente.</p><button id="schemaRetry">Tentar novamente</button></div>';$('#schemaRetry').onclick=async()=>{schemaReady=null;render()};return}
  if(ob===null){const{data}=await sb.from('profiles').select('*').maybeSingle();ob=data?!!data.onboarding_done:true;if(data&&data.a11y){A11Y={...A11Y_DEF,...data.a11y};try{localStorage.setItem(A11Y_KEY,JSON.stringify(A11Y))}catch(e){}applyA11y()}}
  if(!ob)return onboarding();
  return({inicio,ganhos,despesas,contas,dinheiro,mais,metas,veiculos,veiculo,desempenho,relatorios,perfil}[tab]||inicio)()}
@@ -250,7 +256,7 @@ async function cat(name,kind){let{data:ex}=await sb.from('categories').select('i
  if(ex)return ex.id;const r=await sb.from('categories').insert({name,kind}).select('id').single();return r.data?.id||null}
 const rows=async(t,o)=>{const{data,error}=await sb.from(t).select('*'+(o?.sel||''),{count:'exact'}).order(o?.by||'created_at',{ascending:false}).range(0,PAGE_SIZE-1);if(error){dataLoadError=error.message;return[]}return data||[]};
 async function rowsAll(t,o){const out=[],size=200;for(let page=0;;page++){const{data,error}=await sb.from(t).select('*'+(o?.sel||'')).order(o?.by||'created_at',{ascending:false}).range(page*size,page*size+size-1);if(error){dataLoadError=error.message;return[]}out.push(...(data||[]));if(!data||data.length<size)break}return out}
-const dataErrorCard=()=>dataLoadError?`<div class="card"><b>Não foi possível carregar os dados.</b><p class="msg">${esc(dataLoadError)}</p><p class="mu">Nenhum valor foi substituído por R$ 0,00.</p></div>`:'';
+const dataErrorCard=()=>dataLoadError?`<div class="card"><b>Não foi possível carregar os dados.</b><p class="msg">${esc(dataLoadError)}</p><p class="mu">Nenhum valor foi substituído por R$ 0,00.</p><button class="ghost" onclick="location.reload()">Tentar novamente</button></div>`:'';
 const sumC=(l,k='amount_cents')=>l.reduce((s,e)=>s+(e[k]||0),0);
 function bind(id,fn){document.querySelectorAll(id).forEach(b=>b.onclick=()=>fn(b.dataset.id))}
 function brasilGreeting(date=new Date()){const h=Number(new Intl.DateTimeFormat('en-US',{timeZone:'America/Sao_Paulo',hour:'2-digit',hourCycle:'h23'}).format(date));return h>=5&&h<12?'Bom dia':h>=12&&h<18?'Boa tarde':'Boa noite'}
@@ -333,14 +339,14 @@ async function contas(){
  document.querySelectorAll('button[data-a]').forEach(b=>b.onclick=async()=>{const id=b.dataset.id,a=b.dataset.a,x=l.find(z=>z.id===id);
   if(a==='d'){if(!confirm('Excluir conta?'))return;await sb.from('fixed_bills').delete().eq('id',id)}
   else if(a==='n'){if(!confirm('Zerar reservado e pago deste mês?'))return;await sb.from('fixed_bills').update({reserved_cents:0,paid_cents:0,status:'pending'}).eq('id',id)}
-  else{const v=toCents(prompt(a==='r'?'Quanto você reservou? (R$)':'Quanto foi pago? (R$)')||'0');if(!v)return;
+  else{if(a==='p'&&x.paid_cents>=x.amount_cents)return toast('Esta conta já está totalmente paga.');const v=toCents(prompt(a==='r'?'Quanto você reservou? (R$)':'Quanto foi pago? (R$)')||'0');if(!v)return;
    if(a==='p'){const status=x.paid_cents+v>=x.amount_cents?'paid':'partial',when=new Date().toISOString(),cid=await cat('Contas fixas','work'),er=await sb.from('expenses').insert({kind:'work',category_id:cid,amount_cents:v,source:'work',spent_at:when}).select('id').single();if(er.error)return toast('Não foi possível registrar o pagamento.');const pr=await sb.from('bill_payments').insert({user_id:user.id,fixed_bill_id:id,expense_id:er.data.id,amount_cents:v,paid_at:when,status}).select('id').single();if(pr.error){await sb.from('expenses').delete().eq('id',er.data.id);return toast('Não foi possível registrar o pagamento.')}const ur=await sb.from('fixed_bills').update({paid_cents:x.paid_cents+v,status}).eq('id',id);if(ur.error){await sb.from('bill_payments').delete().eq('id',pr.data.id);await sb.from('expenses').delete().eq('id',er.data.id);return toast('Não foi possível atualizar a conta.')}}else{const ur=await sb.from('fixed_bills').update({reserved_cents:x.reserved_cents+v}).eq('id',id);if(ur.error)return toast('Não foi possível atualizar a reserva.')}}
   contas()})}
 
 const BK={work:'Trabalho',personal:'Pessoal',reserve:'Reserva'};
 async function dinheiro(){
  dataLoadError='';shell(LOADING);const page=showAll.mPage||0;
- const[dpAll,wd,all,ex,{data:p},{data:goals}]=await Promise.all([rowsAll('deposits',{by:'deposited_at'}),rowsAll('withdrawals',{by:'withdrawn_at'}),loadEarningsAll(),rowsAll('expenses',{by:'spent_at'}),sb.from('profiles').select('*').single(),sb.from('goals').select('id,title').order('created_at',{ascending:false}).range(0,99)]);const dp=dpAll.slice(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE);
+ const[dpAll,wd,all,ex,{data:p},goalsResult]=await Promise.all([rowsAll('deposits',{by:'deposited_at'}),rowsAll('withdrawals',{by:'withdrawn_at'}),loadEarningsAll(),rowsAll('expenses',{by:'spent_at'}),sb.from('profiles').select('*').single(),rowsAll('goals',{by:'created_at'})]);const goals=goalsResult;const dp=dpAll.slice(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE);
  if(dataLoadError)return shell('<h1>Dinheiro</h1>'+dataErrorCard());
  const gm=sum(all.filter(e=>inMonth(e.earned_at))).t,wm=sumC(ex.filter(e=>e.kind==='work'&&inMonth(e.spent_at)));
  const base=p?.split_base==='net'?Math.max(gm-wm,0):gm,rawPc={b:+(p?.split_bills_pct??50),p:+(p?.split_personal_pct??30),r:+(p?.split_reserve_pct??20)},pc=rawPc.b+rawPc.p+rawPc.r===100?rawPc:{b:50,p:30,r:20};
@@ -360,7 +366,7 @@ async function dinheiro(){
  <select id="md"><option value="auto">Automático (${pc.b}/${pc.p}/${pc.r})</option><option value="man">Manual (eu escolho)</option></select>
  <select id="goal"><option value="">Vincular a uma meta (opcional)</option>${(goals||[]).map(g=>`<option value="${g.id}">${esc(g.title)}</option>`).join('')}</select>
  <select id="bk">${Object.keys(BK).map(k=>`<option value="${k}">${BK[k]}</option>`).join('')}</select>
- <input id="vl" inputmode="decimal" placeholder="Valor total (R$)">
+ <input id="vl" inputmode="decimal" placeholder="Valor total (R$)"><input id="dt" type="date" value="${new Date().toISOString().slice(0,10)}" aria-label="Data da movimentação">
  <div id="pv">${Object.keys(BK).map(k=>`<div class="row" style="margin-bottom:8px"><span class="mu" style="flex:1">${BK[k]}</span><input data-b="${k}" inputmode="decimal" placeholder="0,00" style="width:8.5rem;margin:0;text-align:right"></div>`).join('')}<div class="row" style="margin-bottom:10px"><span class="mu">Total</span><b id="tt">R$ 0,00</b></div></div>
  <div class="msg" id="msg"></div><button id="add">Registrar</button></div></div>
  ${hist.length?'':'<div class="card"><p class="mu">Nenhum depósito ainda. Digite o valor que você guardou e o app divide para você.</p></div>'}
@@ -379,10 +385,10 @@ async function dinheiro(){
  $('#add').onclick=async()=>{const t=$('#tp').value;
   if(t==='deposits'){const auto=$('#md').value==='auto',goal_id=$('#goal').value||null,r=inputs().map(i=>({bucket:i.dataset.b,amount_cents:toCents(i.value),notes:auto?'auto':'manual',goal_id})).filter(x=>x.amount_cents>0);
    if(!r.length)return $('#msg').textContent='Informe o valor.';
-   const{error}=await sb.from('deposits').insert(r);if(error)return $('#msg').textContent=error.message;toast('Depósito salvo ✓');return dinheiro()}
+   r.forEach(x=>x.deposited_at=dateAtNoon($('#dt').value));const{error}=await sb.from('deposits').insert(r);if(error)return $('#msg').textContent=error.message;toast('Depósito salvo ✓');return dinheiro()}
   const v=toCents($('#vl').value);if(!v)return $('#msg').textContent='Informe o valor.';
   if(v>bal($('#bk').value))return $('#msg').textContent='Retirada maior que o saldo registrado.';
-  const{error}=await sb.from('withdrawals').insert({bucket:$('#bk').value,amount_cents:v});if(error)return $('#msg').textContent=error.message;toast('Retirada salva ✓');dinheiro()};
+  const{error}=await sb.from('withdrawals').insert({bucket:$('#bk').value,amount_cents:v,withdrawn_at:dateAtNoon($('#dt').value)});if(error)return $('#msg').textContent=error.message;toast('Retirada salva ✓');dinheiro()};
  document.querySelectorAll('button.sm[data-ids]').forEach(b=>b.onclick=async()=>{if(confirm('Excluir este registro?')){await sb.from(b.dataset.tb).delete().in('id',b.dataset.ids.split(','));dinheiro()}})}
 async function metas(){
  dataLoadError='';shell(LOADING);const[l,dp]=await Promise.all([rowsAll('goals'),rowsAll('deposits',{by:'deposited_at'})]);if(dataLoadError)return shell('<h1>Metas</h1>'+dataErrorCard());const linked=dp.reduce((a,d)=>{if(d.goal_id)a[d.goal_id]=(a[d.goal_id]||0)+d.amount_cents;return a},{});
