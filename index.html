@@ -321,9 +321,9 @@ async function contas(){
  const falta=l.reduce((s,b)=>s+Math.max(b.amount_cents-b.reserved_cents-b.paid_cents,0),0);
  shell(`<h1>Contas fixas</h1><div class="card"><div class="mu">Falta juntar este mês</div><div class="big">${brl(falta)}</div></div>
  <div class="card"><input id="nm" placeholder="Nome (Parcela da moto, Internet…)"><div class="grid"><input id="vl" inputmode="decimal" placeholder="Valor (R$)"><input id="dd" inputmode="numeric" placeholder="Dia do vencimento"></div>
- <div class="msg" id="msg"></div><button id="add">Salvar conta</button></div>
- ${l.length?'':'<div class="card"><p class="mu">Nenhuma conta fixa ainda. Cadastre a parcela da moto, a internet…</p></div>'}
- ${l.map(b=>{const i=billInfo(b),A=b.amount_cents,pd=Math.min(b.paid_cents,A),rs=Math.min(b.reserved_cents,Math.max(A-pd,0)),pp=Math.round(pd*100/A),rp=Math.min(Math.round(rs*100/A),100-pp),fal=Math.max(A-b.reserved_cents-b.paid_cents,0),ph=payments.filter(p=>p.fixed_bill_id===b.id).slice(0,6);
+	 <div class="msg" id="msg"></div><button id="add">Salvar conta</button></div>
+	 ${l.length?'':'<div class="card"><p class="mu">Nenhuma conta fixa ainda. Cadastre a parcela da moto, a internet…</p></div>'}
+	 ${l.map(b=>{const i=billInfo(b),A=b.amount_cents,pd=Math.min(b.paid_cents,A),rs=Math.min(b.reserved_cents,Math.max(A-pd,0)),pp=Math.round(pd*100/A),rp=Math.min(Math.round(rs*100/A),100-pp),fal=Math.max(A-b.reserved_cents-b.paid_cents,0),ph=payments.filter(p=>p.fixed_bill_id===b.id).slice(0,6);
  const due=i.st==='paid'?'Dia '+b.due_day:i.days<0?'Venceu dia '+b.due_day+' · há '+(-i.days)+(i.days===-1?' dia':' dias'):i.days===0?'Vence hoje':'Vence dia '+b.due_day+' · em '+i.days+(i.days===1?' dia':' dias');
  return`<div class="card" data-tg="1" style="cursor:pointer"><div class="row"><b>${esc(b.name)}</b><span style="color:${i.cl};font-size:0.8125rem;font-weight:600">${i.lbl} <span class="mu">▾</span></span></div>
  <div class="mu">${due}</div>
@@ -334,7 +334,7 @@ async function contas(){
  <div class="acts" style="display:none"><div class="grid" style="margin-top:14px"><button class="ghost" data-a="r" data-id="${b.id}">Reservar</button><button data-a="p" data-id="${b.id}">Pagar</button></div>
  <div class="row" style="margin-top:12px"><button class="sm" data-a="n" data-id="${b.id}" style="color:var(--text-2)">Novo mês</button><button class="sm" data-a="d" data-id="${b.id}">Excluir</button></div></div></div>`}).join('')}`);
  $('#add').onclick=async()=>{const v=toCents($('#vl').value),d=parseInt($('#dd').value);if(!$('#nm').value||!v||!(d>=1&&d<=31))return $('#msg').textContent='Preencha nome, valor e dia (1 a 31).';
-  const{error}=await sb.from('fixed_bills').insert({name:$('#nm').value.trim(),amount_cents:v,due_day:d});if(error)return $('#msg').textContent=error.message;toast('Salvo ✓');contas()};
+	  const{error}=await sb.from('fixed_bills').insert({user_id:user.id,name:$('#nm').value.trim(),amount_cents:v,due_day:d});if(error)return $('#msg').textContent=error.message;toast('Salvo ✓');contas()};
  document.querySelectorAll('.card[data-tg]').forEach(c=>c.onclick=e=>{if(e.target.closest('button'))return;const a=c.querySelector('.acts');a.style.display=a.style.display==='none'?'block':'none';const h=c.firstElementChild;if(h)h.setAttribute('aria-expanded',String(a.style.display==='block'))});
  document.querySelectorAll('button[data-a]').forEach(b=>b.onclick=async()=>{const id=b.dataset.id,a=b.dataset.a,x=l.find(z=>z.id===id);
   if(a==='d'){if(!confirm('Excluir conta?'))return;await sb.from('fixed_bills').delete().eq('id',id)}
