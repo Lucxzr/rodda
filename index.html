@@ -234,7 +234,7 @@ async function ganhos(){
   let pid=null;const rawNm=$('#app_').value.trim(),nm=rawNm?normalizePlatformName(rawNm):'';
   if(nm){let{data:ex}=await sb.from('platforms').select('id').eq('user_id',user.id).ilike('name',nm).maybeSingle();
    if(!ex){const r=await sb.from('platforms').insert({user_id:user.id,name:nm}).select('id').single();if(r.error)return $('#msg').textContent=r.error.message.includes('FREE')?r.error.message:r.error.message;ex=r.data}pid=ex.id}
-  const row={platform_id:pid,amount_cents:v,bonus_cents:toCents($('#bon').value),tips_cents:toCents($('#tip').value),deliveries:parseInt($('#ent').value)||0,minutes_worked:parseInt($('#min').value)||null,bonus_confirmed:$('#bc').checked,earned_at:new Date(($('#ed').value||new Date().toISOString().slice(0,10))+'T12:00:00').toISOString()};const{error}=await(editId?sb.from('earnings').update(row).eq('id',editId):sb.from('earnings').insert(row));
+  const row={user_id:user.id,platform_id:pid,amount_cents:v,bonus_cents:toCents($('#bon').value),tips_cents:toCents($('#tip').value),deliveries:parseInt($('#ent').value)||0,minutes_worked:parseInt($('#min').value)||null,bonus_confirmed:$('#bc').checked,earned_at:new Date(($('#ed').value||new Date().toISOString().slice(0,10))+'T12:00:00').toISOString()};const{error}=await(editId?sb.from('earnings').update(row).eq('id',editId):sb.from('earnings').insert(row));
   if(error)return $('#msg').textContent=error.message;toast('Salvo ✓');ganhos()};
  document.querySelectorAll('button.sm[data-id]').forEach(b=>b.onclick=async()=>{if(confirm('Excluir este ganho?')){await sb.from('earnings').delete().eq('id',b.dataset.id);ganhos()}});
  document.querySelectorAll('[data-pl]').forEach(b=>b.onclick=()=>{$('#app_').value=b.dataset.pl});
@@ -253,7 +253,7 @@ function toast(m){const t=document.createElement('div');t.className='toast';t.se
 const mStart=()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(),1)};
 const inMonth=(d)=>new Date(d)>=mStart();
 async function cat(name,kind){let{data:ex}=await sb.from('categories').select('id').ilike('name',name).eq('kind',kind).maybeSingle();
- if(ex)return ex.id;const r=await sb.from('categories').insert({name,kind}).select('id').single();return r.data?.id||null}
+ if(ex)return ex.id;const r=await sb.from('categories').insert({user_id:user.id,name,kind}).select('id').single();return r.data?.id||null}
 const rows=async(t,o)=>{const{data,error}=await sb.from(t).select('*'+(o?.sel||''),{count:'exact'}).order(o?.by||'created_at',{ascending:false}).range(0,PAGE_SIZE-1);if(error){dataLoadError=error.message;return[]}return data||[]};
 async function rowsAll(t,o){const out=[],size=200;for(let page=0;;page++){const{data,error}=await sb.from(t).select('*'+(o?.sel||'')).order(o?.by||'created_at',{ascending:false}).range(page*size,page*size+size-1);if(error){dataLoadError=error.message;return[]}out.push(...(data||[]));if(!data||data.length<size)break}return out}
 const dataErrorCard=()=>dataLoadError?`<div class="card"><b>Não foi possível carregar os dados.</b><p class="msg">${esc(dataLoadError)}</p><p class="mu">Nenhum valor foi substituído por R$ 0,00.</p><button class="ghost" onclick="location.reload()">Tentar novamente</button></div>`:'';
@@ -307,7 +307,7 @@ async function despesas(){
  $('#dp').onclick=()=>{showAll.dPage=page-1;despesas()};$('#dn').onclick=()=>{showAll.dPage=page+1;despesas()};
  $('#add').onclick=async()=>{const v=toCents($('#vl').value),k=$('#kd').value,sr=$('#sr').value;if(!v)return $('#msg').textContent='Informe o valor.';
   if(sr!=='work'&&bal(sr)<v&&!confirm('O saldo de '+SRC[sr]+' ('+brl(bal(sr))+') não cobre este gasto. Salvar mesmo assim?'))return;
-  const n=$('#ct').value.trim(),cid=n?await cat(n,k):null,row={kind:k,category_id:cid,amount_cents:v,source:sr,spent_at:new Date(($('#ed').value||new Date().toISOString().slice(0,10))+'T12:00:00').toISOString()};
+  const n=$('#ct').value.trim(),cid=n?await cat(n,k):null,row={user_id:user.id,kind:k,category_id:cid,amount_cents:v,source:sr,spent_at:new Date(($('#ed').value||new Date().toISOString().slice(0,10))+'T12:00:00').toISOString()};
   const{error}=await(editId?sb.from('expenses').update(row).eq('id',editId):sb.from('expenses').insert(row));
   if(error)return $('#msg').textContent=error.message;toast('Gasto salvo ✓');despesas()};
  bind('button.sm[data-id]',async id=>{if(confirm('Excluir?')){await sb.from('expenses').delete().eq('id',id);despesas()}});
@@ -384,10 +384,10 @@ async function dinheiro(){
  $('#add').onclick=async()=>{const t=$('#tp').value;
   if(t==='deposits'){const auto=$('#md').value==='auto',goal_id=$('#goal').value||null,r=inputs().map(i=>({bucket:i.dataset.b,amount_cents:toCents(i.value),notes:auto?'auto':'manual',goal_id})).filter(x=>x.amount_cents>0);
    if(!r.length)return $('#msg').textContent='Informe o valor.';
-   r.forEach(x=>x.deposited_at=dateAtNoon($('#dt').value));const{error}=await sb.from('deposits').insert(r);if(error)return $('#msg').textContent=error.message;toast('Depósito salvo ✓');return dinheiro()}
+   r.forEach(x=>{x.user_id=user.id;x.deposited_at=dateAtNoon($('#dt').value)});const{error}=await sb.from('deposits').insert(r);if(error)return $('#msg').textContent=error.message;toast('Depósito salvo ✓');return dinheiro()}
   const v=toCents($('#vl').value);if(!v)return $('#msg').textContent='Informe o valor.';
   if(v>bal($('#bk').value))return $('#msg').textContent='Retirada maior que o saldo registrado.';
-  const{error}=await sb.from('withdrawals').insert({bucket:$('#bk').value,amount_cents:v,goal_id:$('#goal').value||null,withdrawn_at:dateAtNoon($('#dt').value)});if(error)return $('#msg').textContent=error.message;toast('Retirada salva ✓');dinheiro()};
+  const{error}=await sb.from('withdrawals').insert({user_id:user.id,bucket:$('#bk').value,amount_cents:v,goal_id:$('#goal').value||null,withdrawn_at:dateAtNoon($('#dt').value)});if(error)return $('#msg').textContent=error.message;toast('Retirada salva ✓');dinheiro()};
  document.querySelectorAll('button.sm[data-ids]').forEach(b=>b.onclick=async()=>{if(confirm('Excluir este registro?')){await sb.from(b.dataset.tb).delete().in('id',b.dataset.ids.split(','));dinheiro()}})}
 async function metas(){
  dataLoadError='';shell(LOADING);const[l,dp]=await Promise.all([rowsAll('goals'),rowsAll('deposits',{by:'deposited_at'})]);if(dataLoadError)return shell('<h1>Metas</h1>'+dataErrorCard());const linked=dp.reduce((a,d)=>{if(d.goal_id)a[d.goal_id]=(a[d.goal_id]||0)+d.amount_cents;return a},{});
@@ -400,11 +400,11 @@ async function metas(){
  ${dd>0&&fl?`<div class="mu">Estimativa: ${brl(Math.ceil(fl/dd))}/dia ou ${brl(Math.ceil(fl/Math.max(dd/7,1)))}/semana até o prazo (${dd} dias)</div>`:dd<=0&&fl?'<div class="mu" style="color:var(--danger)">Prazo vencido</div>':''}<br>
  <div class="grid"><button data-a="a" data-id="${g.id}">Adicionar valor</button><button class="sm" data-a="d" data-id="${g.id}" style="padding:13px">Excluir</button></div></div>`}).join('')}`);
  $('#add').onclick=async()=>{const v=toCents($('#vl').value);if(!$('#tt').value||!v)return $('#msg').textContent='Informe título e valor.';
-  const{error}=await sb.from('goals').insert({title:$('#tt').value.trim(),target_cents:v,deadline:$('#dl').value||null});
+  const{error}=await sb.from('goals').insert({user_id:user.id,title:$('#tt').value.trim(),target_cents:v,deadline:$('#dl').value||null});
   if(error)return $('#msg').textContent=error.message.includes('FREE')?error.message:error.message;toast('Salvo ✓');metas()};
  document.querySelectorAll('button[data-a]').forEach(b=>b.onclick=async()=>{const g=l.find(z=>z.id===b.dataset.id);
   if(b.dataset.a==='d'){if(confirm('Excluir meta?')){await sb.from('goals').delete().eq('id',g.id);metas()}return}
-  const v=toCents(prompt('Quanto depositar na meta? (R$)')||'0');if(v){const{error}=await sb.from('deposits').insert({bucket:'reserve',amount_cents:v,goal_id:g.id,notes:'goal',deposited_at:dateAtNoon()});if(error)return toast('Não foi possível registrar o depósito.');toast('Depósito vinculado salvo ✓');metas()}})}
+  const v=toCents(prompt('Quanto depositar na meta? (R$)')||'0');if(v){const{error}=await sb.from('deposits').insert({user_id:user.id,bucket:'reserve',amount_cents:v,goal_id:g.id,notes:'goal',deposited_at:dateAtNoon()});if(error)return toast('Não foi possível registrar o depósito.');toast('Depósito vinculado salvo ✓');metas()}})}
 let vid=null;const VT={bike:'Bicicleta',ebike:'Bicicleta elétrica',emoto:'Moto elétrica',moto:'Moto a combustão',scooter:'Patinete elétrico',other:'Outro'};
 const ELE=['ebike','emoto','scooter'],r3=c=>'R$ '+(c/100).toFixed(3).replace('.',','),n1=x=>x.toFixed(1).replace('.',',');
 function mais(){shell(`<h1>Mais</h1>${[['contas','Contas fixas','Vencimentos e quanto falta juntar'],['metas','Metas','Quanto falta e quanto ganhar por dia'],['veiculos','Veículos','Recargas, combustível e manutenção'],['desempenho','Análises','Desempenho e relatórios'],['perfil','Perfil','Conta, divisão, dados e sair']].map(([k,t,d])=>`<div class="card row" data-go="${k}"><div><b>${t}</b><div class="mu">${d}</div></div><span class="mu">›</span></div>`).join('')}`);
@@ -419,7 +419,7 @@ async function veiculos(){
  ${l.length?'':'<div class="card"><p class="mu">Nenhum veículo ainda. Cadastre o seu para controlar recargas, combustível e manutenção.</p></div>'}
  ${l.map(v=>`<div class="card row" data-id="${v.id}"><div><b>${esc(v.name)}</b><div class="mu">${VT[v.type]} · ${v.odometer_km||0} km</div></div><span class="mu">›</span></div>`).join('')}`);
  $('#add').onclick=async()=>{if(!$('#nm').value)return $('#msg').textContent='Dê um nome ao veículo.';
-  const{error}=await sb.from('vehicles').insert({name:$('#nm').value.trim(),model:$('#md').value||null,type:$('#tp').value,odometer_km:parseFloat($('#km').value.replace(',','.'))||0,est_range_km:parseFloat($('#au').value.replace(',','.'))||null});
+  const{error}=await sb.from('vehicles').insert({user_id:user.id,name:$('#nm').value.trim(),model:$('#md').value||null,type:$('#tp').value,odometer_km:parseFloat($('#km').value.replace(',','.'))||0,est_range_km:parseFloat($('#au').value.replace(',','.'))||null});
   if(error)return $('#msg').textContent=error.message.includes('FREE')?error.message:error.message;toast('Salvo ✓');veiculos()};
  bind('.card[data-id]',id=>{vid=id;tab='veiculo';render()})}
 
@@ -524,14 +524,14 @@ function fuelUI(v,fu,exps){
   document.querySelectorAll('[data-fd]').forEach(b=>b.onclick=async()=>{const x=fu.find(z=>z.id===b.dataset.fd);if(!confirm('Excluir este abastecimento?'))return;
    const dx=x.expense_id&&confirm('Excluir também o gasto de combustível vinculado?');await sb.from('fuelings').delete().eq('id',x.id);if(dx)await sb.from('expenses').delete().eq('id',x.expense_id);toast('Excluído');veiculo()});
   $('#fsave').onclick=async()=>{const m=$('#fm');m.textContent='';const odo=P('#fo'),dist=P('#fk'),L=P('#fl'),C=toCents($('#ft').value),date=$('#fd').value;
-   const f={vehicle_id:vid,fueled_at:date,liters:L,cost_cents:C,odometer_km:odo,distance_km:dist,full_tank:$('#fh').checked,fuel_type:$('#fy').value,notes:$('#fn').value.trim()||null};
+   const f={user_id:user.id,vehicle_id:vid,fueled_at:date,liters:L,cost_cents:C,odometer_km:odo,distance_km:dist,full_tank:$('#fh').checked,fuel_type:$('#fy').value,notes:$('#fn').value.trim()||null};
    const V=fuelValidate(fu,{...f,id:fEdit},+v.tank_capacity_l||0,fEdit);if(V.error)return m.textContent=V.error;if(V.warn&&!confirm(V.warn+' Salvar mesmo assim?'))return;
    let id=fEdit;const ex=fu.find(x=>x.id===fEdit)?.expense_id||null;
    if(fEdit){const{error}=await sb.from('fuelings').update(f).eq('id',fEdit);if(error)return m.textContent=error.message}
    else{const{data,error}=await sb.from('fuelings').insert(f).select('id').single();if(error)return m.textContent=error.message;id=data.id}
    const mode=$('#ln').value,when=new Date(date+'T12:00:00').toISOString();
    if(ex)await sb.from('expenses').update({amount_cents:C,spent_at:when,vehicle_id:vid}).eq('id',ex);
-   else if(mode==='new'){const cid=await cat('Combustível','work'),r=await sb.from('expenses').insert({kind:'work',category_id:cid,amount_cents:C,source:'work',vehicle_id:vid,spent_at:when}).select('id').single();if(r.data)await sb.from('fuelings').update({expense_id:r.data.id}).eq('id',id)}
+   else if(mode==='new'){const cid=await cat('Combustível','work'),r=await sb.from('expenses').insert({user_id:user.id,kind:'work',category_id:cid,amount_cents:C,source:'work',vehicle_id:vid,spent_at:when}).select('id').single();if(r.data)await sb.from('fuelings').update({expense_id:r.data.id}).eq('id',id)}
    else if(mode!=='none'){await sb.from('expenses').update({vehicle_id:vid}).eq('id',mode);await sb.from('fuelings').update({expense_id:mode}).eq('id',id)}
    if(odo>(v.odometer_km||0))await sb.from('vehicles').update({odometer_km:odo}).eq('id',vid);
    toast('Abastecimento salvo ✓');veiculo()}};
@@ -558,7 +558,7 @@ async function veiculo(){
  const N=s=>parseFloat(String($(s).value).replace(',','.')),TB={ch:'charges',fu:'fuelings',mt:'maintenances'};
  $('#bk').onclick=()=>{tab='veiculos';render()};if(gas)FX.bind();
  $('#ok').onclick=async()=>{const k=N_(prompt('Km atual do veículo?'));if(k>=0){await sb.from('vehicles').update({odometer_km:k}).eq('id',vid);veiculo()}};
- const run=async(t,o,m)=>{const{error}=await sb.from(t).insert({vehicle_id:vid,...o});if(error)return $(m).textContent=error.message;toast('Salvo ✓');veiculo()};
+ const run=async(t,o,m)=>{const{error}=await sb.from(t).insert({user_id:user.id,vehicle_id:vid,...o});if(error)return $(m).textContent=error.message;toast('Salvo ✓');veiculo()};
  if($('#a1'))$('#a1').onclick=()=>{const a=N('#b1'),b=N('#b2');if(!(a>=0&&b>a&&b<=100))return $('#m1').textContent='Bateria final deve ser maior que a inicial (0 a 100%).';
   run('charges',{battery_start_pct:a,battery_end_pct:b,km:N('#kmx')||null,kwh:N('#kwh')||null,cost_cents:toCents($('#cst').value)},'#m1')};
  if($('#a2'))$('#a2').onclick=()=>{if(!(N('#lt')>0)||!toCents($('#cst').value))return $('#m1').textContent='Informe litros e valor.';
